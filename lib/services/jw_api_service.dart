@@ -39,20 +39,29 @@ class JwApiService {
       final localEpub = p.join(issuesDir.path, 'w_$code.epub');
       final localJwpub = p.join(issuesDir.path, 'w_$code.jwpub');
 
+      final epubFile = File(localEpub);
+      final jwpubFile = File(localJwpub);
+      final epubExists = await epubFile.exists() && (await epubFile.length()) > 1000;
+      final jwpubExists = await jwpubFile.exists() && (await jwpubFile.length()) > 1000;
+
       bool isDownloaded = false;
       String? localPath;
 
-      if (await File(localEpub).exists()) {
-        isDownloaded = true;
-        localPath = localEpub;
-      } else if (await File(localJwpub).exists()) {
+      if (jwpubExists) {
         isDownloaded = true;
         localPath = localJwpub;
+      } else if (epubExists) {
+        isDownloaded = true;
+        localPath = localEpub;
       }
 
       final cachedCover = prefs.getString('cover_$code');
       final cachedFile = prefs.getString('file_$code');
       final cachedChecksum = prefs.getString('checksum_$code');
+      final cachedFormat = prefs.getString('format_$code');
+
+      final effectiveFormat = cachedFormat ??
+          (jwpubExists || cachedFile?.toLowerCase().endsWith('.jwpub') == true ? 'JWPUB' : 'EPUB');
 
       enrichedIssues.add(WatchtowerIssue(
         issueCode: code,
@@ -61,6 +70,7 @@ class JwApiService {
         fileSize: issue.fileSize,
         coverUrl: cachedCover ?? issue.coverUrl,
         fileUrl: cachedFile ?? issue.fileUrl,
+        format: effectiveFormat,
         checksum: cachedChecksum ?? issue.checksum,
         isDownloaded: isDownloaded,
         localPath: localPath,
@@ -173,6 +183,7 @@ class JwApiService {
             if (fileUrl != null && fileUrl.toString().isNotEmpty) {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setString('file_$issueCode', fileUrl);
+              await prefs.setString('format_$issueCode', foundFormat);
               if (coverUrl != null) {
                 await prefs.setString('cover_$issueCode', coverUrl);
               }
@@ -218,7 +229,10 @@ class JwApiService {
       await dir.create(recursive: true);
     }
 
-    final ext = issue.format.toLowerCase() == 'jwpub' ? 'jwpub' : 'epub';
+    final isJwpub = issue.format.toUpperCase() == 'JWPUB' ||
+        (issue.fileUrl != null && issue.fileUrl!.toLowerCase().endsWith('.jwpub'));
+    final ext = isJwpub ? 'jwpub' : 'epub';
+    issue.format = isJwpub ? 'JWPUB' : 'EPUB';
     final localFilePath = p.join(dir.path, 'w_${issue.issueCode}.$ext');
 
     final pubClient = PubMediaClient();
@@ -239,6 +253,13 @@ class JwApiService {
         verifyChecksum: issue.checksum != null && issue.checksum!.isNotEmpty,
       );
 
+      final oppositeExt = isJwpub ? 'epub' : 'jwpub';
+      final oppositeFile = File(p.join(dir.path, 'w_${issue.issueCode}.$oppositeExt'));
+      if (await oppositeFile.exists()) {
+        try { await oppositeFile.delete(); } catch (_) {}
+      }
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('format_${issue.issueCode}', issue.format);
       issue.isDownloaded = true;
       issue.localPath = localFilePath;
       return localFilePath;
@@ -249,13 +270,27 @@ class JwApiService {
 
   /// Exclui o arquivo baixado localmente
   Future<void> deleteDownloadedIssue(WatchtowerIssue issue) async {
-    if (issue.localPath != null) {
-      final file = File(issue.localPath!);
-      if (await file.exists()) {
-        await file.delete();
-      }
-      issue.isDownloaded = false;
-      issue.localPath = null;
+    final appDir = await getApplicationDocumentsDirectory();
+    final issuesDir = Directory(p.join(appDir.path, 'issues'));
+    final epubFile = File(p.join(issuesDir.path, 'w_${issue.issueCode}.epub'));
+    final jwpubFile = File(p.join(issuesDir.path, 'w_${issue.issueCode}.jwpub'));
+    if (await epubFile.exists()) {
+      try { await epubFile.delete(); } catch (_) {}
     }
+    if (await jwpubFile.exists()) {
+      try { await jwpubFile.delete(); } catch (_) {}
+    }
+    final extJwpub = Directory(p.join(issuesDir.path, 'extracted_jwpub', issue.issueCode));
+    if (await extJwpub.exists()) {
+      try { await extJwpub.delete(recursive: true); } catch (_) {}
+    }
+    final extImg = Directory(p.join(issuesDir.path, 'extracted_images', issue.issueCode));
+    if (await extImg.exists()) {
+      try { await extImg.delete(recursive: true); } catch (_) {}
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('format_${issue.issueCode}');
+    issue.isDownloaded = false;
+    issue.localPath = null;
   }
 }

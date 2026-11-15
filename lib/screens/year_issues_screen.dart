@@ -185,7 +185,14 @@ class _YearIssuesScreenState extends State<YearIssuesScreen> {
       if (parsed.articles.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Nenhum artigo de estudo encontrado nesta edição.')),
+            SnackBar(
+              content: const Text('Nenhum artigo encontrado. Deseja baixar novamente?'),
+              action: SnackBarAction(
+                label: 'BAIXAR',
+                textColor: const Color(0xFFB388FF),
+                onPressed: () => _downloadIssue(issue),
+              ),
+            ),
           );
         }
         return;

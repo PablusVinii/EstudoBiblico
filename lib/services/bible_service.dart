@@ -192,7 +192,7 @@ class BibleService {
 
     for (final v in defaultVersions) {
       final vDir = Directory(p.join(baseDir.path, v.id));
-      final exists = await vDir.exists();
+      final exists = await _hasValidBibleContent(vDir);
       list.add(v.copyWith(isDownloaded: exists));
     }
 
@@ -208,10 +208,25 @@ class BibleService {
     return biblesDir;
   }
 
+  Future<bool> _hasValidBibleContent(Directory dir) async {
+    if (!await dir.exists()) return false;
+    try {
+      await for (final entity in dir.list(recursive: true)) {
+        if (entity is File) {
+          final name = p.basename(entity.path).toLowerCase();
+          if (name.endsWith('.xhtml') || name.endsWith('.html')) {
+            return true;
+          }
+        }
+      }
+    } catch (_) {}
+    return false;
+  }
+
   Future<bool> isVersionDownloaded(String versionId) async {
     final baseDir = await _getBiblesDirectory();
     final vDir = Directory(p.join(baseDir.path, versionId));
-    return vDir.exists();
+    return _hasValidBibleContent(vDir);
   }
 
   /// Resolve a URL final da CDN para download usando o PubMediaClient
@@ -306,9 +321,13 @@ class BibleService {
         fileFormat: 'JWPUB,EPUB',
       );
 
+      final isStudyBible = version.id == 'nwtsty_t';
+      final preferredFormats = isStudyBible
+          ? const ['JWPUB', 'EPUB']
+          : const ['EPUB', 'JWPUB'];
       final preferredFile = pub?.preferredFile(
         preferredLanguage: version.langCode,
-        preferredFormats: const ['JWPUB', 'EPUB'],
+        preferredFormats: preferredFormats,
       );
 
       if (preferredFile != null) {
@@ -359,15 +378,18 @@ class BibleService {
       if (version.id == 'nwtsty_t') {
         try {
           final nwtTDir = Directory(p.join(baseDir.path, 'nwt_t'));
-          if (await nwtTDir.exists()) {
+          if (await nwtTDir.exists() && await _hasValidBibleContent(nwtTDir)) {
             await _copyDirectory(nwtTDir, targetDir);
           } else {
             final nwtPub = await client.getPublication(
               pubCode: 'nwt',
               language: version.langCode,
-              fileFormat: 'JWPUB,EPUB',
+              fileFormat: 'EPUB,JWPUB',
             );
-            final nwtFile = nwtPub?.preferredFile(preferredLanguage: version.langCode);
+            final nwtFile = nwtPub?.preferredFile(
+              preferredLanguage: version.langCode,
+              preferredFormats: const ['EPUB', 'JWPUB'],
+            );
             if (nwtFile != null) {
               final nwtTemp = File(p.join(baseDir.path, 'nwt_temp_${version.langCode}.zip'));
               try {
@@ -457,6 +479,7 @@ class BibleService {
           return fallbackChapter;
         }
       }
+      _ensureStudyBibleText(version, activeDir);
     }
 
     return _generateOnlineOrPlaceholderChapter(book, chapter);
@@ -488,6 +511,16 @@ class BibleService {
       }
     }
 
+    if (foundFile == null) {
+      try {
+        await for (final entity in targetDir.list(recursive: true)) {
+          if (entity is File && p.basename(entity.path).toLowerCase() == fileName.toLowerCase()) {
+            foundFile = entity;
+            break;
+          }
+        }
+      } catch (_) {}
+    }
     if (foundFile == null) {
       return null;
     }
@@ -681,4 +714,57 @@ class BibleService {
       ],
     );
   }
+
+  void _ensureStudyBibleText(BibleVersion version, Directory targetDir) {
+    if (_activeDownloadTasks.containsKey('sync_text_${version.id}')) return;
+    final completer = Completer<void>();
+    _activeDownloadTasks['sync_text_${version.id}'] = completer.future;
+    completer.future.ignore();
+    () async {
+      final client = PubMediaClient();
+      try {
+        final baseDir = await _getBiblesDirectory();
+        final nwtPub = await client.getPublication(
+          pubCode: 'nwt',
+          language: version.langCode,
+          fileFormat: 'EPUB,JWPUB',
+        );
+        final nwtFile = nwtPub?.preferredFile(
+          preferredLanguage: version.langCode,
+          preferredFormats: const ['EPUB', 'JWPUB'],
+        );
+        if (nwtFile != null) {
+          final tempFile = File(p.join(baseDir.path, 'nwt_recovery_${version.langCode}.zip'));
+          try {
+            await client.downloadFile(
+              file: nwtFile,
+              destinationFile: tempFile,
+              verifyChecksum: nwtFile.checksum.isNotEmpty,
+            );
+            final bytes = await tempFile.readAsBytes();
+            final archive = await compute(_decodeZip, bytes);
+            final inner = archive.findFile('contents');
+            if (inner != null) {
+              final innerArchive = await compute(_decodeZip, inner.content as List<int>);
+              await _safeExtractArchive(innerArchive, targetDir);
+            } else {
+              await _safeExtractArchive(archive, targetDir);
+            }
+          } finally {
+            if (await tempFile.exists()) {
+              try { await tempFile.delete(); } catch (_) {}
+            }
+          }
+        }
+        completer.complete();
+      } catch (e) {
+        debugPrint('Aviso: falha na sincronizacao em segundo plano: $e');
+        if (!completer.isCompleted) completer.complete();
+      } finally {
+        client.close();
+        _activeDownloadTasks.remove('sync_text_${version.id}');
+      }
+    }();
+  }
+
 }

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/article.dart';
 import 'study_storage_service.dart';
 import 'jwpub_service.dart';
+import 'seed_catalog.dart';
 
 class ArticleParser {
   /// Extrai as imagens do arquivo EPUB para um diretório local e retorna um mapa [nomeArquivo -> caminhoAbsoluto]
@@ -44,12 +45,28 @@ class ArticleParser {
 
   /// Faz o parse completo da edição, extraindo imagens de capa, período de estudo e artigos
   static Future<ParsedIssue> parseIssue(String filePath, [String? explicitIssueCode]) async {
-    if (filePath.toLowerCase().endsWith('.jwpub')) {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      throw FileSystemException('Arquivo da publicação não encontrado', filePath);
+    }
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) {
+      throw FileSystemException('Arquivo da publicação está vazio', filePath);
+    }
+    final archive = await compute(_decodeZip, bytes);
+    final hasContents = archive.findFile('contents') != null;
+    final hasManifest = archive.findFile('manifest.json') != null;
+    if (hasContents || hasManifest || filePath.toLowerCase().endsWith('.jwpub')) {
       return _parseJwpubIssue(filePath, explicitIssueCode);
     }
+    return _parseEpubArchive(archive, filePath, explicitIssueCode);
+  }
 
-    final bytes = await File(filePath).readAsBytes();
-    final archive = await compute(_decodeZip, bytes);
+  static Future<ParsedIssue> _parseEpubArchive(
+    Archive archive,
+    String filePath, [
+    String? explicitIssueCode,
+  ]) async {
 
     final issueCode = explicitIssueCode ??
         p.basenameWithoutExtension(filePath).replaceAll(RegExp(r'[^0-9]'), '');
@@ -205,8 +222,31 @@ class ArticleParser {
     }
 
     final articles = <StudyArticle>[];
-    String issueTitle = manifest?.name.isNotEmpty == true ? manifest!.name : 'A Sentinela $issueCode';
+    final rawName = manifest?.name ?? '';
+    String issueTitle;
+    if (rawName.isNotEmpty && !rawName.toLowerCase().endsWith('.jwpub')) {
+      issueTitle = rawName;
+    } else if (issueCode.length >= 6) {
+      final y = int.tryParse(issueCode.substring(0, 4));
+      final m = int.tryParse(issueCode.substring(4, 6));
+      if (y != null && m != null) {
+        final monthName = SeedCatalog.monthNames[m] ?? '$m';
+        issueTitle = 'A Sentinela, $monthName de $y';
+      } else {
+        issueTitle = 'A Sentinela $issueCode';
+      }
+    } else {
+      issueTitle = 'A Sentinela $issueCode';
+    }
+
     String? studyPeriod = manifest?.coverTitle.isNotEmpty == true ? manifest!.coverTitle : null;
+    if (studyPeriod == null && issueCode.length >= 6) {
+      final y = int.tryParse(issueCode.substring(0, 4));
+      final m = int.tryParse(issueCode.substring(4, 6));
+      if (y != null && m != null) {
+        studyPeriod = SeedCatalog.calculateStudyPeriod(y, m);
+      }
+    }
 
     for (final doc in docs) {
       if (doc.contentHtml.contains('class="qu"') ||
