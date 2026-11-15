@@ -14,7 +14,7 @@ class JwApiService {
     'https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS',
   ];
 
-  static const List<String> _langCodes = ['TPO', 'T', 'PO'];
+  static const List<String> _langCodes = ['T', 'TPO', 'PO'];
   static const List<String> _pubCodes = ['w', 'ws'];
 
   /// Lista de anos suportados para navegação (igual ao JW Library oficial)
@@ -56,7 +56,13 @@ class JwApiService {
       }
 
       final cachedCover = prefs.getString('cover_$code');
-      final cachedFile = prefs.getString('file_$code');
+      String? cachedFile = prefs.getString('file_$code');
+      if (cachedFile != null && cachedFile.contains('_TPO_')) {
+        cachedFile = null;
+        prefs.remove('file_$code');
+        prefs.remove('format_$code');
+        prefs.remove('checksum_$code');
+      }
       final cachedChecksum = prefs.getString('checksum_$code');
       final cachedFormat = prefs.getString('format_$code');
 
@@ -149,7 +155,7 @@ class JwApiService {
             if (filesMap is! Map) continue;
 
             Map<String, dynamic>? langFiles;
-            for (final lk in ['TPO', 'T', 'PO']) {
+            for (final lk in ['T', 'TPO', 'PO']) {
               if (filesMap[lk] is Map) {
                 langFiles = Map<String, dynamic>.from(filesMap[lk]);
                 break;
@@ -213,7 +219,7 @@ class JwApiService {
     WatchtowerIssue issue, {
     void Function(double progress)? onProgress,
   }) async {
-    if (issue.fileUrl == null || issue.fileUrl!.isEmpty) {
+    if (issue.fileUrl == null || issue.fileUrl!.isEmpty || issue.fileUrl!.contains('_TPO_')) {
       final meta = await fetchIssueMetadata(issue.issueCode);
       if (meta != null && meta.fileUrl != null) {
         issue.fileUrl = meta.fileUrl;
