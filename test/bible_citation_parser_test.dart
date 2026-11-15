@@ -174,5 +174,35 @@ void main() {
       expect(BibleCitationParser.parse('Capítulo 5'), isNull);
       expect(BibleCitationParser.parse('Texto comum 123'), isNull);
     });
+    test('Parses exact user prompt examples (Rev 21:3, 4, Mat 24:14, 1Co 13:4-8) from jw-core', () {
+      final rev = BibleCitationParser.parse('Rev 21:3, 4');
+      expect(rev, isNotNull);
+      expect(rev!.book.id, equals(66));
+      expect(rev.chapter, equals(21));
+      expect(rev.startVerse, equals(3));
+      expect(rev.endVerse, equals(4));
+
+      final mat = BibleCitationParser.parse('Mat 24:14');
+      expect(mat, isNotNull);
+      expect(mat!.book.id, equals(40));
+      expect(mat.chapter, equals(24));
+      expect(mat.startVerse, equals(14));
+      expect(mat.endVerse, equals(14));
+
+      final co = BibleCitationParser.parse('1Co 13:4-8');
+      expect(co, isNotNull);
+      expect(co!.book.id, equals(46));
+      expect(co.chapter, equals(13));
+      expect(co.startVerse, equals(4));
+      expect(co.endVerse, equals(8));
+
+      // Multi-language parity (PT, EN, ES)
+      final pt = BibleCitationParser.parse('João 3:16');
+      final en = BibleCitationParser.parse('John 3:16');
+      final es = BibleCitationParser.parse('Juan 3:16');
+      expect(pt!.book.id, equals(43));
+      expect(en!.book.id, equals(43));
+      expect(es!.book.id, equals(43));
+    });
   });
 }
