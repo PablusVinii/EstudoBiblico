@@ -581,6 +581,66 @@ class BibleService {
     String xhtml,
   ) => _parseXhtmlChapter(book, chapter, xhtml);
 
+  static List<BibleVerseToken> _parseVerseTokens(
+    String rawHtml,
+    Map<String, String> footnotes,
+  ) {
+    final tokens = <BibleVerseToken>[];
+    final tagRegex = RegExp(
+      r'<a[^>]*class="[^"]*(w_cr|w_fn)[^"]*"[^>]*href="([^"]*)"[^>]*>(.*?)</a>',
+      caseSensitive: false,
+    );
+    int lastIndex = 0;
+
+    for (final match in tagRegex.allMatches(rawHtml)) {
+      if (match.start > lastIndex) {
+        final textSlice = rawHtml.substring(lastIndex, match.start);
+        final cleanText = textSlice
+            .replaceAll(RegExp(r'<span[^>]*class="pageNum"[^>]*>.*?</span>', caseSensitive: false, dotAll: true), '')
+            .replaceAll(RegExp(r'<[^>]+>'), ' ')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .replaceAll('*', '')
+            .replaceAll('+', '')
+            .trim();
+        if (cleanText.isNotEmpty) {
+          tokens.add(BibleVerseToken.text(cleanText));
+        }
+      }
+
+      final cls = (match.group(1) ?? '').toLowerCase();
+      final href = match.group(2) ?? '';
+      if (cls.contains('w_fn')) {
+        final fnId = href.replaceAll('#', '').trim();
+        final fnText = footnotes[fnId] ?? 'Nota explicativa';
+        tokens.add(BibleVerseToken.footnote(
+          footnoteId: fnId,
+          footnoteText: fnText,
+        ));
+      } else if (cls.contains('w_cr')) {
+        tokens.add(BibleVerseToken.crossRef(
+          crossRefTarget: href,
+        ));
+      }
+      lastIndex = match.end;
+    }
+
+    if (lastIndex < rawHtml.length) {
+      final textSlice = rawHtml.substring(lastIndex);
+      final cleanText = textSlice
+          .replaceAll(RegExp(r'<span[^>]*class="pageNum"[^>]*>.*?</span>', caseSensitive: false, dotAll: true), '')
+          .replaceAll(RegExp(r'<[^>]+>'), ' ')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .replaceAll('*', '')
+          .replaceAll('+', '')
+          .trim();
+      if (cleanText.isNotEmpty) {
+        tokens.add(BibleVerseToken.text(cleanText));
+      }
+    }
+
+    return tokens;
+  }
+
   BibleChapterContent _parseXhtmlChapter(
     BibleBook book,
     int chapter,
@@ -589,9 +649,9 @@ class BibleService {
     final verses = <BibleVerseItem>[];
     final footnotes = <String, String>{};
 
-    // Extrai notas de rodapé do final se houver
+    // Extrai notas de rodapé do final se houver (suporta footnote1 e fn1)
     final footnoteMatches = RegExp(
-      r'<li[^>]*id="(footnote\d+)"[^>]*>(.*?)</li>',
+      r'<li[^>]*id="((?:footnote|fn)\d+)"[^>]*>(.*?)</li>',
       caseSensitive: false,
       dotAll: true,
     ).allMatches(xhtml);
@@ -613,33 +673,50 @@ class BibleService {
 
     for (final pMatch in pMatches) {
       final pContent = pMatch.group(1) ?? '';
-
       // Versículo inicial ou marcador de versículos (ex: <span class="w_ch"><strong>1</strong></span> ou <sup>2</sup>)
       final parts = pContent.split(RegExp(
-        r'(?:<span[^>]*class="w_ch"[^>]*><strong>\d+</strong>\s*</span>|(?:<strong><sup>\d+</sup></strong>|<sup><strong>\d+</strong></sup>))',
+        r'(?:<span[^>]*class="w_ch"[^>]*><strong>\d+</strong>\s*</span>|(?:<strong><sup>\d+</sup></strong>|<sup><strong>\d+</strong></sup>|<sup>\d+</sup>))',
         caseSensitive: false,
       ));
       final numMatches = RegExp(
-        r'(?:class="w_ch"[^>]*><strong>(\d+)</strong>|(?:<strong><sup>(\d+)</sup></strong>|<sup><strong>(\d+)</strong></sup>))',
+        r'(?:class="w_ch"[^>]*><strong>(\d+)</strong>|(?:<strong><sup>(\d+)</sup></strong>|<sup><strong>(\d+)</strong></sup>|<sup>(\d+)</sup>))',
         caseSensitive: false,
       ).allMatches(pContent).toList();
 
       if (numMatches.isEmpty && verses.isNotEmpty) {
         // Parágrafo de continuação do versículo anterior
+        final contTokens = _parseVerseTokens(pContent, footnotes);
         var contText = pContent
             .replaceAll(RegExp(r'<a[^>]*class="[^"]*(?:w_cr|w_fn)[^"]*"[^>]*>.*?</a>', caseSensitive: false), '')
             .replaceAll(RegExp(r'<span[^>]*class="pageNum"[^>]*>.*?</span>', caseSensitive: false, dotAll: true), '')
             .replaceAll(RegExp(r'<[^>]+>'), ' ')
             .replaceAll(RegExp(r'\s+'), ' ')
             .replaceAll('*', '')
+            .replaceAll('+', '')
             .trim();
-        if (contText.isNotEmpty) {
+        if (contText.isNotEmpty || contTokens.isNotEmpty) {
           final lastVerse = verses.removeLast();
+          final updatedTokens = List<BibleVerseToken>.from(lastVerse.tokens);
+          if (contTokens.isNotEmpty) {
+            final first = contTokens.first;
+            if (!first.isFootnote && !first.isCrossRef) {
+              contTokens[0] = BibleVerseToken.text(' ${first.text}');
+            } else {
+              updatedTokens.add(const BibleVerseToken.text(' '));
+            }
+            updatedTokens.addAll(contTokens);
+          }
+          final updatedFootnotes = List<String>.from(lastVerse.footnotes)
+            ..addAll(contTokens.where((t) => t.isFootnote && t.footnoteText != null).map((t) => t.footnoteText!));
+          final updatedCrossRefs = List<String>.from(lastVerse.crossRefs)
+            ..addAll(contTokens.where((t) => t.isCrossRef && t.crossRefTarget != null).map((t) => t.crossRefTarget!));
+
           verses.add(BibleVerseItem(
             verseNumber: lastVerse.verseNumber,
-            text: '${lastVerse.text} $contText',
-            footnotes: lastVerse.footnotes,
-            crossRefs: lastVerse.crossRefs,
+            text: contText.isNotEmpty ? '${lastVerse.text} $contText' : lastVerse.text,
+            footnotes: updatedFootnotes,
+            crossRefs: updatedCrossRefs,
+            tokens: updatedTokens,
           ));
         }
         continue;
@@ -649,7 +726,7 @@ class BibleService {
         final m = numMatches[i];
         final int vNum = m.group(1) != null
             ? 1
-            : (int.tryParse(m.group(2) ?? m.group(3) ?? '') ?? (i + 1));
+            : (int.tryParse(m.group(2) ?? m.group(3) ?? m.group(4) ?? '') ?? (i + 1));
         final rawText = (i + 1 < parts.length) ? parts[i + 1] : '';
 
         // Limpa HTML mantendo apenas texto limpo
@@ -659,12 +736,26 @@ class BibleService {
             .replaceAll(RegExp(r'<[^>]+>'), ' ')
             .replaceAll(RegExp(r'\s+'), ' ')
             .replaceAll('*', '')
+            .replaceAll('+', '')
             .trim();
 
-        if (cleanText.isNotEmpty) {
+        final vTokens = _parseVerseTokens(rawText, footnotes);
+        final vFootnotes = vTokens
+            .where((t) => t.isFootnote && t.footnoteText != null)
+            .map((t) => t.footnoteText!)
+            .toList();
+        final vCrossRefs = vTokens
+            .where((t) => t.isCrossRef && t.crossRefTarget != null)
+            .map((t) => t.crossRefTarget!)
+            .toList();
+
+        if (cleanText.isNotEmpty || vTokens.isNotEmpty) {
           verses.add(BibleVerseItem(
             verseNumber: vNum,
             text: cleanText,
+            footnotes: vFootnotes,
+            crossRefs: vCrossRefs,
+            tokens: vTokens,
           ));
         }
       }

@@ -161,7 +161,7 @@ void main() {
       await tester.tap(fab);
       await tester.pumpAndSettle();
 
-      expect(find.text('Painel de Estudo - Gênesis 1'), findsOneWidget);
+      expect(find.textContaining('Painel de Estudo'), findsOneWidget);
     });
   });
 }

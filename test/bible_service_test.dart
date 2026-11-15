@@ -190,5 +190,44 @@ void main() {
       expect(content.verses[1].text, equals('A terra era sem forma e vazia.'));
       expect(content.verses[1].text.contains('*'), isFalse);
     });
+
+    test('parseXhtmlChapter creates interactive BibleVerseToken for footnotes and cross-references', () {
+      final genesis = BibleService.books.first;
+      const xhtmlWithRefs = '''
+        <html>
+          <body>
+            <p class="sb"><span class="w_ch"><strong>1</strong></span> No princípio Deus criou os céus e a terra.<a class="w_cr" href="#cr1">+</a></p>
+            <p class="sb"><sup><strong>2</strong></sup> A terra era sem forma e vazia.<a class="w_fn" href="#fn1">*</a></p>
+            <ol>
+              <li id="fn1">Nota explicativa sobre o estado primordial.</li>
+            </ol>
+          </body>
+        </html>
+      ''';
+
+      final content = service.parseXhtmlChapter(genesis, 1, xhtmlWithRefs);
+      expect(content.verses[0].tokens.any((t) => t.isCrossRef && t.crossRefTarget == '#cr1'), isTrue);
+      expect(content.verses[1].tokens.any((t) => t.isFootnote && t.footnoteId == 'fn1' && (t.footnoteText?.contains('estado primordial') ?? false)), isTrue);
+    });
+
+    test('parseXhtmlChapter supports sup without strong and maintains spacing on continuation paragraphs', () {
+      final genesis = BibleService.books.first;
+      const xhtmlSup = '''
+        <html>
+          <body>
+            <p class="sb"><span class="w_ch"><strong>1</strong></span> No princípio Deus criou os céus e a terra.</p>
+            <p class="sb"><sup>2</sup> A terra era sem forma e vazia.</p>
+            <p class="sz">E havia escuridão sobre a superfície das águas profundas.</p>
+          </body>
+        </html>
+      ''';
+
+      final content = service.parseXhtmlChapter(genesis, 1, xhtmlSup);
+      expect(content.verses.length, equals(2));
+      expect(content.verses[1].verseNumber, equals(2));
+      expect(content.verses[1].text, contains('A terra era sem forma e vazia. E havia escuridão'));
+      final tokenTexts = content.verses[1].tokens.map((t) => t.text).join();
+      expect(tokenTexts, contains('A terra era sem forma e vazia. E havia escuridão'));
+    });
   });
 }

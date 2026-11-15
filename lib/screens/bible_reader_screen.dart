@@ -1,6 +1,9 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../models/bible_model.dart';
 import '../services/bible_service.dart';
+import '../services/bible_citation_parser.dart';
+import '../services/jwpub_service.dart';
 import 'bible_languages_dialog.dart';
 
 class BibleReaderScreen extends StatefulWidget {
@@ -29,6 +32,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   late int _currentChapter;
   late BibleVersion _currentVersion;
   final Map<int, GlobalKey> _verseKeys = {};
+  final List<GestureRecognizer> _tokenRecognizers = [];
   BibleChapterContent? _content;
   bool _isLoading = true;
   bool _isDownloaded = false;
@@ -41,7 +45,21 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
     _loadChapterData();
   }
 
+  void _clearTokenRecognizers() {
+    for (final r in _tokenRecognizers) {
+      r.dispose();
+    }
+    _tokenRecognizers.clear();
+  }
+
+  @override
+  void dispose() {
+    _clearTokenRecognizers();
+    super.dispose();
+  }
+
   Future<void> _loadChapterData() async {
+    _clearTokenRecognizers();
     _verseKeys.clear();
     setState(() => _isLoading = true);
     try {
@@ -99,6 +117,150 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
     }
   }
 
+  void _showFootnoteDialog(int verseNumber, String footnoteText) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.star, color: Color(0xFFFFD54F), size: 22),
+                const SizedBox(width: 10),
+                Text(
+                  'Nota de Rodapé — Versículo $verseNumber',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text(
+              footnoteText,
+              style: const TextStyle(color: Colors.white70, fontSize: 15, height: 1.5),
+            ),
+            const SizedBox(height: 20),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => Navigator.pop(sheetContext),
+                style: TextButton.styleFrom(foregroundColor: const Color(0xFFB388FF)),
+                child: const Text('FECHAR', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCrossRefDialog(int verseNumber, String target) {
+    final citation = JwpubService.parseBibleLink(target) ??
+        (() {
+          final p = BibleCitationParser.parse(target);
+          if (p == null) return null;
+          return JwpubBibleCitation(
+            bookNumber: p.book.id,
+            bookName: p.book.name,
+            chapter: p.chapter,
+            startVerse: p.startVerse,
+            endVerse: p.endVerse,
+          );
+        })();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.link, color: Color(0xFF64B5F6), size: 22),
+                const SizedBox(width: 10),
+                Text(
+                  'Referência Cruzada — Versículo $verseNumber',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (citation != null) ...[
+              Text(
+                '${citation.bookName} ${citation.chapter}:${citation.startVerse}${citation.endVerse != citation.startVerse ? "-${citation.endVerse}" : ""}',
+                style: const TextStyle(
+                  color: Color(0xFFB388FF),
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(sheetContext);
+                  _openScriptureCitation(citation);
+                },
+                icon: const Icon(Icons.menu_book),
+                label: const Text('Abrir Passagem na Bíblia'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF7C4DFF),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 44),
+                ),
+              ),
+            ] else ...[
+              Text(
+                target.isNotEmpty ? target : 'Consulte as referências marginais no Painel de Estudo.',
+                style: const TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+            ],
+            const SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openScriptureCitation(JwpubBibleCitation citation) {
+    final targetBook = BibleService.books.firstWhere(
+      (b) => b.id == citation.bookNumber,
+      orElse: () => widget.book,
+    );
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BibleReaderScreen(
+          book: targetBook,
+          initialChapter: citation.chapter,
+          version: _currentVersion,
+          bibleService: widget.bibleService,
+          targetVerse: citation.startVerse,
+          targetEndVerse: citation.endVerse,
+        ),
+      ),
+    );
+  }
+
   void _openStudySheet() {
     showModalBottomSheet(
       context: context,
@@ -119,7 +281,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                     const Icon(Icons.diamond, color: Color(0xFFB388FF), size: 24),
                     const SizedBox(width: 10),
                     Text(
-                      'Painel de Estudo - ${widget.book.name} $_currentChapter',
+                      'Painel de Estudo — ${widget.book.name} $_currentChapter',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 18,
@@ -128,28 +290,85 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 const Text(
-                  'Notas de estudo, referências marginais e mapas multimídia oficiais.',
-                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                  'Notas de rodapé explicativas, referências marginais e materiais complementares.',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
                 ),
                 const SizedBox(height: 16),
+
+                // Seção 1: Notas de Rodapé do Capítulo
                 if (_content != null && _content!.footnotes.isNotEmpty) ...[
                   const Divider(color: Color(0xFF333333)),
-                  const Text(
-                    'Notas de Rodapé:',
-                    style: TextStyle(color: Color(0xFFB388FF), fontWeight: FontWeight.bold, fontSize: 14),
+                  Row(
+                    children: [
+                      const Icon(Icons.star, color: Color(0xFFFFD54F), size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Notas de Rodapé (${_content!.footnotes.length}):',
+                        style: const TextStyle(color: Color(0xFFFFD54F), fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   ..._content!.footnotes.entries.map((entry) => Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Text(
-                      '• ${entry.value}',
-                      style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('* ', style: TextStyle(color: Color(0xFFFFD54F), fontWeight: FontWeight.bold)),
+                        Expanded(
+                          child: Text(
+                            entry.value,
+                            style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+                          ),
+                        ),
+                      ],
                     ),
                   )),
                   const SizedBox(height: 16),
                 ],
+
+                // Seção 2: Referências Marginais (Textos Cruzados)
+                if (_content != null && _content!.verses.any((v) => v.crossRefs.isNotEmpty)) ...[
+                  const Divider(color: Color(0xFF333333)),
+                  const Row(
+                    children: [
+                      Icon(Icons.link, color: Color(0xFF64B5F6), size: 16),
+                      SizedBox(width: 6),
+                      Text(
+                        'Referências Marginais:',
+                        style: TextStyle(color: Color(0xFF64B5F6), fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  ..._content!.verses.where((v) => v.crossRefs.isNotEmpty).map((v) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      children: [
+                        Text('v. ${v.verseNumber}: ', style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold)),
+                        Expanded(
+                          child: Wrap(
+                            spacing: 6,
+                            children: v.crossRefs.map((ref) {
+                              return ActionChip(
+                                label: Text(ref, style: const TextStyle(fontSize: 11, color: Colors.white)),
+                                backgroundColor: const Color(0xFF2A2A2A),
+                                onPressed: () {
+                                  Navigator.pop(sheetContext);
+                                  _showCrossRefDialog(v.verseNumber, ref);
+                                },
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )),
+                  const SizedBox(height: 16),
+                ],
+
                 if (!_isDownloaded)
                   ElevatedButton.icon(
                     onPressed: () {
@@ -182,6 +401,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
 
   @override
   Widget build(BuildContext context) {
+    _clearTokenRecognizers();
     return Scaffold(
       backgroundColor: const Color(0xFF000000),
       appBar: AppBar(
@@ -320,7 +540,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
 
                     const SizedBox(height: 12),
 
-                    // Versículos renderizados com realce visual inteligente
+                    // Versículos renderizados com realce e tokens interativos (* e +)
                     if (_content != null && _content!.verses.isNotEmpty)
                       ..._content!.verses.map((verse) {
                         final isTarget = widget.targetVerse != null &&
@@ -362,12 +582,56 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                TextSpan(
-                                  text: verse.text,
-                                  style: isTarget
-                                      ? const TextStyle(fontWeight: FontWeight.w500, color: Colors.white)
-                                      : null,
-                                ),
+                                if (verse.tokens.isNotEmpty)
+                                  ...verse.tokens.map((token) {
+                                    if (token.isFootnote) {
+                                      final recognizer = TapGestureRecognizer()
+                                        ..onTap = () => _showFootnoteDialog(
+                                              verse.verseNumber,
+                                              token.footnoteText ?? 'Nota explicativa',
+                                            );
+                                      _tokenRecognizers.add(recognizer);
+                                      return TextSpan(
+                                        text: ' *',
+                                        style: const TextStyle(
+                                          color: Color(0xFFFFD54F),
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                        recognizer: recognizer,
+                                      );
+                                    } else if (token.isCrossRef) {
+                                      final recognizer = TapGestureRecognizer()
+                                        ..onTap = () => _showCrossRefDialog(
+                                              verse.verseNumber,
+                                              token.crossRefTarget ?? '',
+                                            );
+                                      _tokenRecognizers.add(recognizer);
+                                      return TextSpan(
+                                        text: ' +',
+                                        style: const TextStyle(
+                                          color: Color(0xFF64B5F6),
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                        recognizer: recognizer,
+                                      );
+                                    } else {
+                                      return TextSpan(
+                                        text: token.text,
+                                        style: isTarget
+                                            ? const TextStyle(fontWeight: FontWeight.w500, color: Colors.white)
+                                            : null,
+                                      );
+                                    }
+                                  })
+                                else
+                                  TextSpan(
+                                    text: verse.text,
+                                    style: isTarget
+                                        ? const TextStyle(fontWeight: FontWeight.w500, color: Colors.white)
+                                        : null,
+                                  ),
                               ],
                             ),
                           ),

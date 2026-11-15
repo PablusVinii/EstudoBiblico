@@ -68,17 +68,60 @@ class BibleVersion {
   }
 }
 
+class BibleVerseToken {
+  final String text;
+  final bool isFootnote;
+  final String? footnoteId;
+  final String? footnoteText;
+  final bool isCrossRef;
+  final String? crossRefTarget;
+
+  const BibleVerseToken({
+    required this.text,
+    this.isFootnote = false,
+    this.footnoteId,
+    this.footnoteText,
+    this.isCrossRef = false,
+    this.crossRefTarget,
+  });
+
+  const BibleVerseToken.text(this.text)
+      : isFootnote = false,
+        footnoteId = null,
+        footnoteText = null,
+        isCrossRef = false,
+        crossRefTarget = null;
+
+  const BibleVerseToken.footnote({
+    required this.footnoteId,
+    required this.footnoteText,
+    this.text = '*',
+  })  : isFootnote = true,
+        isCrossRef = false,
+        crossRefTarget = null;
+
+  const BibleVerseToken.crossRef({
+    required this.crossRefTarget,
+    this.text = '+',
+  })  : isFootnote = false,
+        footnoteId = null,
+        footnoteText = null,
+        isCrossRef = true;
+}
+
 class BibleVerseItem {
   final int verseNumber;
   final String text;
   final List<String> footnotes;
   final List<String> crossRefs;
+  final List<BibleVerseToken> tokens;
 
   const BibleVerseItem({
     required this.verseNumber,
     required this.text,
     this.footnotes = const [],
     this.crossRefs = const [],
+    this.tokens = const [],
   });
 }
 
@@ -88,6 +131,8 @@ class BibleChapterContent {
   final int chapterNumber;
   final List<BibleVerseItem> verses;
   final Map<String, String> footnotes;
+  final Map<String, String> crossRefs;
+  final Map<int, List<String>> studyNotes;
 
   const BibleChapterContent({
     required this.bookNumber,
@@ -95,5 +140,35 @@ class BibleChapterContent {
     required this.chapterNumber,
     required this.verses,
     this.footnotes = const {},
+    this.crossRefs = const {},
+    this.studyNotes = const {},
+  });
+}
+
+class BibleIndexTopic {
+  final String title;
+  final String category;
+  final List<String> scriptures;
+
+  const BibleIndexTopic({
+    required this.title,
+    required this.category,
+    required this.scriptures,
+  });
+}
+
+class BibleArticleDocument {
+  final String id;
+  final String title;
+  final String subtitle;
+  final String category; // 'intro', 'appendix_a', 'appendix_b'
+  final String content;
+
+  const BibleArticleDocument({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.category,
+    required this.content,
   });
 }
