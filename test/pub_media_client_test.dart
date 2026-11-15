@@ -140,6 +140,41 @@ void main() {
       expect(preferred.url, equals('https://cfp2.jw-cdn.org/nwtsty_T.jwpub'));
     });
 
+    test('downloadFile validates MD5 integrity (32 chars) from official JW CDN', () async {
+      final contentBytes = utf8.encode('Conteúdo legítimo de teste da Sentinela com hash MD5 da CDN');
+      final validMd5 = md5.convert(contentBytes).toString();
+      expect(validMd5.length, equals(32));
+
+      final mockClient = MockClient((request) async {
+        return http.Response.bytes(contentBytes, 200);
+      });
+
+      final client = PubMediaClient(client: mockClient);
+      final tempDir = await Directory.systemTemp.createTemp('pubmedia_test_md5_');
+      final destFile = File('${tempDir.path}/test_download.jwpub');
+
+      final mediaFile = PubMediaFile(
+        url: 'https://example.com/test_md5.jwpub',
+        filename: 'test_md5.jwpub',
+        title: 'Test MD5',
+        language: 'T',
+        fileFormat: 'JWPUB',
+        sizeBytes: contentBytes.length,
+        checksum: validMd5,
+      );
+
+      final savedFile = await client.downloadFile(
+        file: mediaFile,
+        destinationFile: destFile,
+        verifyChecksum: true,
+      );
+
+      expect(savedFile.existsSync(), isTrue);
+      expect(await savedFile.readAsString(), equals('Conteúdo legítimo de teste da Sentinela com hash MD5 da CDN'));
+
+      await tempDir.delete(recursive: true);
+    });
+
     test('downloadFile validates SHA-256 integrity when matching checksum', () async {
       final contentBytes = utf8.encode('Conteúdo legítimo de teste da Sentinela');
       final validChecksum = sha256.convert(contentBytes).toString();

@@ -19,17 +19,19 @@ class PubMediaException implements Exception {
 class PubMediaChecksumException implements Exception {
   final String expectedChecksum;
   final String actualChecksum;
+  final String algorithm;
   final String filePath;
 
   const PubMediaChecksumException({
     required this.expectedChecksum,
     required this.actualChecksum,
+    this.algorithm = 'MD5',
     required this.filePath,
   });
 
   @override
   String toString() =>
-      'PubMediaChecksumException: Falha na integridade SHA-256 para $filePath. Esperado: $expectedChecksum, Obtido: $actualChecksum';
+      'PubMediaChecksumException: Falha na integridade $algorithm para $filePath. Esperado: $expectedChecksum, Obtido: $actualChecksum';
 }
 
 class PubMediaFile {
@@ -277,19 +279,29 @@ class PubMediaClient {
       throw PubMediaException('Erro durante transferencia de bytes: $e', uri: Uri.parse(file.url));
     }
 
-    // Verificacao rigorosa de integridade SHA-256
-    if (verifyChecksum && file.checksum.isNotEmpty) {
+    // Verificacao rigorosa de integridade (suporta MD5 para 32 caracteres e SHA-256 para 64 caracteres)
+    if (verifyChecksum && file.checksum.trim().isNotEmpty) {
       final downloadedBytes = await tempFile.readAsBytes();
-      final calculatedSha256 = sha256.convert(downloadedBytes).toString().toLowerCase();
-      final expectedSha256 = file.checksum.toLowerCase();
+      final expected = file.checksum.trim().toLowerCase();
+      final String calculated;
+      final String algo;
 
-      if (calculatedSha256 != expectedSha256) {
+      if (expected.length == 32) {
+        calculated = md5.convert(downloadedBytes).toString().toLowerCase();
+        algo = 'MD5';
+      } else {
+        calculated = sha256.convert(downloadedBytes).toString().toLowerCase();
+        algo = 'SHA-256';
+      }
+
+      if (calculated != expected) {
         if (await tempFile.exists()) {
           await tempFile.delete();
         }
         throw PubMediaChecksumException(
-          expectedChecksum: expectedSha256,
-          actualChecksum: calculatedSha256,
+          expectedChecksum: expected,
+          actualChecksum: calculated,
+          algorithm: algo,
           filePath: destinationFile.path,
         );
       }
