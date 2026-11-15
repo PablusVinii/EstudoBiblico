@@ -14,7 +14,7 @@ class JwApiService {
     'https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS',
   ];
 
-  static const List<String> _langCodes = ['T', 'TPO', 'PO'];
+  static const List<String> _langCodes = ['T'];
   static const List<String> _pubCodes = ['w', 'ws'];
 
   /// Lista de anos suportados para navegação (igual ao JW Library oficial)

@@ -1,3 +1,4 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentinela_study/models/bible_model.dart';
@@ -120,6 +121,7 @@ void main() {
     });
 
     testWidgets('BibleReaderScreen renders verse highlights, navigation buttons and study sheet', (tester) async {
+      SharedPreferences.setMockInitialValues({});
       final fakeService = FakeBibleService();
       final genesis = BibleService.books.first;
       final version = BibleService.defaultVersions.first;

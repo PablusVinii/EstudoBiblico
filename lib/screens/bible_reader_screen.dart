@@ -3,6 +3,13 @@ import '../models/bible_model.dart';
 import '../services/bible_service.dart';
 import '../services/bible_citation_parser.dart';
 import '../services/jwpub_service.dart';
+import '../models/user_highlight_model.dart';
+import '../services/highlight_storage_service.dart';
+import '../widgets/explanation_sheet.dart';
+import '../widgets/bible_study_sheet.dart';
+import '../widgets/highlight_text_helper.dart';
+import '../widgets/jw_text_selection_toolbar.dart';
+import '../widgets/note_editor_dialog.dart';
 import 'bible_languages_dialog.dart';
 
 class BibleReaderScreen extends StatefulWidget {
@@ -32,6 +39,8 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   late BibleVersion _currentVersion;
   final Map<int, GlobalKey> _verseKeys = {};
   BibleChapterContent? _content;
+  List<UserHighlight> _highlights = [];
+  String _selectedText = '';
   bool _isLoading = true;
   bool _isDownloaded = false;
 
@@ -55,6 +64,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
       final activeVersion = await widget.bibleService.getActiveVersion();
       final downloaded = await widget.bibleService.isVersionDownloaded(activeVersion.id);
       final content = await widget.bibleService.loadChapter(widget.book, _currentChapter);
+      await _loadHighlights();
       if (!mounted) return;
       setState(() {
         _currentVersion = activeVersion;
@@ -90,6 +100,149 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  Future<void> _loadHighlights() async {
+    final refKey = 'bible_${widget.book.id}_$_currentChapter';
+    final list = await HighlightStorageService.loadHighlights(
+      sourceType: 'bible',
+      referenceKey: refKey,
+    );
+    if (!mounted) return;
+    setState(() => _highlights = list);
+  }
+
+  void _handleHighlightText(int colorIndex, String selectedText) async {
+    final clean = selectedText.trim();
+    if (clean.isEmpty) return;
+
+    int targetVerseNum = 1;
+    int startOffset = 0;
+    for (final v in _content?.verses ?? <BibleVerseItem>[]) {
+      final idx = v.text.indexOf(clean);
+      if (idx != -1) {
+        targetVerseNum = v.verseNumber;
+        startOffset = idx;
+        break;
+      }
+    }
+
+    final newHl = UserHighlight(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      sourceType: 'bible',
+      referenceKey: 'bible_${widget.book.id}_$_currentChapter',
+      blockIndex: targetVerseNum,
+      startOffset: startOffset,
+      endOffset: startOffset + clean.length,
+      colorIndex: colorIndex,
+      selectedText: clean,
+      updatedAt: DateTime.now().toIso8601String(),
+    );
+
+    await HighlightStorageService.saveHighlight(newHl);
+    await _loadHighlights();
+  }
+
+  void _handleDeleteHighlight(String selectedText) async {
+    final clean = selectedText.trim();
+    final target = _highlights.firstWhere(
+      (h) => h.selectedText.contains(clean) || clean.contains(h.selectedText),
+      orElse: () => UserHighlight(
+        id: '',
+        sourceType: 'bible',
+        referenceKey: '',
+        blockIndex: 0,
+        startOffset: 0,
+        endOffset: 0,
+        colorIndex: 1,
+        selectedText: '',
+        updatedAt: '',
+      ),
+    );
+
+    if (target.id.isNotEmpty) {
+      await HighlightStorageService.deleteHighlight(
+        target.id,
+        sourceType: 'bible',
+        referenceKey: 'bible_${widget.book.id}_$_currentChapter',
+      );
+      await _loadHighlights();
+    }
+  }
+
+  void _handleExplainSelection(String selectedText) {
+    String contextText = '';
+    for (final v in _content?.verses ?? <BibleVerseItem>[]) {
+      if (v.text.contains(selectedText.trim())) {
+        contextText = '${widget.book.name} $_currentChapter:${v.verseNumber} — ${v.text}';
+        break;
+      }
+    }
+    if (contextText.isEmpty) {
+      contextText = '${widget.book.name} $_currentChapter: $selectedText';
+    }
+
+    ExplanationSheet.show(
+      context,
+      selectedText: selectedText.trim(),
+      contextText: contextText,
+    );
+  }
+
+  void _handleAddNote(String selectedText) {
+    final clean = selectedText.trim();
+    final target = _highlights.firstWhere(
+      (h) => h.selectedText.contains(clean) || clean.contains(h.selectedText),
+      orElse: () => UserHighlight(
+        id: '',
+        sourceType: 'bible',
+        referenceKey: '',
+        blockIndex: 0,
+        startOffset: 0,
+        endOffset: 0,
+        colorIndex: 1,
+        selectedText: '',
+        updatedAt: '',
+      ),
+    );
+
+    NoteEditorDialog.show(
+      context: context,
+      selectedText: clean,
+      initialNote: target.noteText,
+      onSave: (note) async {
+        if (target.id.isNotEmpty) {
+          await HighlightStorageService.updateHighlightNote(
+            target.id,
+            note,
+            sourceType: 'bible',
+            referenceKey: 'bible_${widget.book.id}_$_currentChapter',
+          );
+        } else {
+          int targetVerseNum = 1;
+          for (final v in _content?.verses ?? <BibleVerseItem>[]) {
+            if (v.text.contains(clean)) {
+              targetVerseNum = v.verseNumber;
+              break;
+            }
+          }
+          final newHl = UserHighlight(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            sourceType: 'bible',
+            referenceKey: 'bible_${widget.book.id}_$_currentChapter',
+            blockIndex: targetVerseNum,
+            startOffset: 0,
+            endOffset: clean.length,
+            colorIndex: 1,
+            selectedText: clean,
+            noteText: note.isNotEmpty ? note : null,
+            updatedAt: DateTime.now().toIso8601String(),
+          );
+          await HighlightStorageService.saveHighlight(newHl);
+        }
+        await _loadHighlights();
+      },
+    );
   }
 
   void _goToPreviousChapter() {
@@ -251,137 +404,28 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   }
 
   void _openStudySheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1E1E1E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (sheetContext) {
-        return Padding(
-          padding: const EdgeInsets.all(20),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.diamond, color: Color(0xFFB388FF), size: 24),
-                    const SizedBox(width: 10),
-                    Text(
-                      'Painel de Estudo — ${widget.book.name} $_currentChapter',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                const Text(
-                  'Notas de rodapé explicativas, referências marginais e materiais complementares.',
-                  style: TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-                const SizedBox(height: 16),
-
-                // Seção 1: Notas de Rodapé do Capítulo
-                if (_content != null && _content!.footnotes.isNotEmpty) ...[
-                  const Divider(color: Color(0xFF333333)),
-                  Row(
-                    children: [
-                      const Icon(Icons.star, color: Color(0xFFFFD54F), size: 16),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Notas de Rodapé (${_content!.footnotes.length}):',
-                        style: const TextStyle(color: Color(0xFFFFD54F), fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  ..._content!.footnotes.entries.map((entry) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('* ', style: TextStyle(color: Color(0xFFFFD54F), fontWeight: FontWeight.bold)),
-                        Expanded(
-                          child: Text(
-                            entry.value,
-                            style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )),
-                  const SizedBox(height: 16),
-                ],
-
-                // Seção 2: Referências Marginais (Textos Cruzados)
-                if (_content != null && _content!.verses.any((v) => v.crossRefs.isNotEmpty)) ...[
-                  const Divider(color: Color(0xFF333333)),
-                  const Row(
-                    children: [
-                      Icon(Icons.link, color: Color(0xFF64B5F6), size: 16),
-                      SizedBox(width: 6),
-                      Text(
-                        'Referências Marginais:',
-                        style: TextStyle(color: Color(0xFF64B5F6), fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  ..._content!.verses.where((v) => v.crossRefs.isNotEmpty).map((v) => Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Row(
-                      children: [
-                        Text('v. ${v.verseNumber}: ', style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold)),
-                        Expanded(
-                          child: Wrap(
-                            spacing: 6,
-                            children: v.crossRefs.map((ref) {
-                              return ActionChip(
-                                label: Text(ref, style: const TextStyle(fontSize: 11, color: Colors.white)),
-                                backgroundColor: const Color(0xFF2A2A2A),
-                                onPressed: () {
-                                  Navigator.pop(sheetContext);
-                                  _showCrossRefDialog(v.verseNumber, ref);
-                                },
-                              );
-                            }).toList(),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )),
-                  const SizedBox(height: 16),
-                ],
-
-                if (!_isDownloaded)
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(sheetContext);
-                      showDialog(
-                        context: context,
-                        builder: (_) => BibleLanguagesDialog(
-                          bibleService: widget.bibleService,
-                          onVersionChanged: () {
-                            _loadChapterData();
-                          },
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.cloud_download),
-                    label: const Text('Baixar Versão Completa para Estudo Offline'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF7C4DFF),
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(double.infinity, 44),
-                    ),
-                  ),
-              ],
-            ),
+    BibleStudySheet.show(
+      context,
+      book: widget.book,
+      currentChapter: _currentChapter,
+      content: _content,
+      isDownloaded: _isDownloaded,
+      highlights: _highlights,
+      onDeleteHighlight: (h) async {
+        await HighlightStorageService.deleteHighlight(
+          h.id,
+          sourceType: 'bible',
+          referenceKey: 'bible_${widget.book.id}_$_currentChapter',
+        );
+        await _loadHighlights();
+      },
+      onShowCrossRef: (verseNumber, ref) => _showCrossRefDialog(verseNumber, ref),
+      onDownloadFullBible: () {
+        showDialog(
+          context: context,
+          builder: (_) => BibleLanguagesDialog(
+            bibleService: widget.bibleService,
+            onVersionChanged: () => _loadChapterData(),
           ),
         );
       },
@@ -459,7 +503,19 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                   }
                 }
               },
-              child: SingleChildScrollView(
+              child: SelectionArea(
+                onSelectionChanged: (content) => _selectedText = content?.plainText ?? '',
+                contextMenuBuilder: (context, selectableRegionState) {
+                  return JwTextSelectionToolbar(
+                    selectableRegionState: selectableRegionState,
+                    selectedText: _selectedText,
+                    onColorSelected: _handleHighlightText,
+                    onDeleteHighlight: _handleDeleteHighlight,
+                    onExplainWithAi: _handleExplainSelection,
+                    onAddNote: _handleAddNote,
+                  );
+                },
+                child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 80),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -536,6 +592,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                             verse.verseNumber >= widget.targetVerse! &&
                             verse.verseNumber <= (widget.targetEndVerse ?? widget.targetVerse!);
                         final vKey = _verseKeys.putIfAbsent(verse.verseNumber, () => GlobalKey());
+                        final vHighlights = _highlights.where((h) => h.blockIndex == verse.verseNumber).toList();
 
                         return Container(
                           key: vKey,
@@ -552,8 +609,8 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                                   ),
                                 )
                               : null,
-                          child: RichText(
-                            text: TextSpan(
+                          child: Text.rich(
+                            TextSpan(
                               style: const TextStyle(
                                 fontSize: 19,
                                 height: 1.5,
@@ -620,19 +677,25 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                                       );
                                     } else {
                                       return TextSpan(
-                                        text: token.text,
-                                        style: isTarget
-                                            ? const TextStyle(fontWeight: FontWeight.w500, color: Colors.white)
-                                            : null,
+                                        children: HighlightTextHelper.buildHighlightedSpans(
+                                          fullText: token.text,
+                                          highlights: vHighlights,
+                                          defaultStyle: isTarget
+                                              ? const TextStyle(fontWeight: FontWeight.w500, color: Colors.white)
+                                              : null,
+                                          isTarget: isTarget,
+                                        ),
                                       );
                                     }
                                   })
                                 else
-                                  TextSpan(
-                                    text: verse.text,
-                                    style: isTarget
+                                  ...HighlightTextHelper.buildHighlightedSpans(
+                                    fullText: verse.text,
+                                    highlights: vHighlights,
+                                    defaultStyle: isTarget
                                         ? const TextStyle(fontWeight: FontWeight.w500, color: Colors.white)
                                         : null,
+                                    isTarget: isTarget,
                                   ),
                               ],
                             ),
@@ -686,6 +749,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                 ),
               ),
             ),
+          ),
     );
   }
 }
