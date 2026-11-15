@@ -122,7 +122,7 @@ class JwApiService {
         for (final lang in _langCodes) {
           try {
             final uri = Uri.parse(
-              '$baseUrl?output=json&pub=$pubCode&issue=$issueCode&fileformat=EPUB&langwritten=$lang&alllangs=0',
+              '$baseUrl?output=json&pub=$pubCode&issue=$issueCode&fileformat=JWPUB,EPUB&langwritten=$lang&alllangs=0',
             );
 
             final response = await http
@@ -151,12 +151,12 @@ class JwApiService {
             List? items;
             String foundFormat = 'EPUB';
 
-            if (langFiles['EPUB'] is List && (langFiles['EPUB'] as List).isNotEmpty) {
-              items = langFiles['EPUB'] as List;
-              foundFormat = 'EPUB';
-            } else if (langFiles['JWPUB'] is List && (langFiles['JWPUB'] as List).isNotEmpty) {
+            if (langFiles['JWPUB'] is List && (langFiles['JWPUB'] as List).isNotEmpty) {
               items = langFiles['JWPUB'] as List;
               foundFormat = 'JWPUB';
+            } else if (langFiles['EPUB'] is List && (langFiles['EPUB'] as List).isNotEmpty) {
+              items = langFiles['EPUB'] as List;
+              foundFormat = 'EPUB';
             }
 
             if (items == null || items.isEmpty) continue;

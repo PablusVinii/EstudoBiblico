@@ -1,3 +1,4 @@
+import 'pub_media_client.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'dart:convert';
@@ -10,6 +11,11 @@ import '../models/bible_model.dart';
 
 class BibleService {
   static const String _prefActiveVersionKey = 'bible_active_version_id';
+  static final Set<String> _activeDownloads = {};
+
+  static Archive _decodeZip(List<int> bytes) => ZipDecoder().decodeBytes(bytes);
+
+  bool isDownloading(String versionId) => _activeDownloads.contains(versionId);
   static const String _defaultVersionId = 'nwt_t';
 
   static const List<BibleBook> books = [
@@ -209,33 +215,21 @@ class BibleService {
     return vDir.exists();
   }
 
-  /// Resolve a URL final da CDN para download
+  /// Resolve a URL final da CDN para download usando o PubMediaClient
   Future<String> resolveDownloadUrl(BibleVersion version) async {
-    if (version.directUrl.startsWith('https://cfp2.jw-cdn.org') ||
-        version.directUrl.endsWith('.epub') ||
-        version.directUrl.endsWith('.jwpub')) {
-      return version.directUrl;
-    }
-
     try {
-      final response = await http.get(
-        Uri.parse(version.directUrl),
-        headers: {'User-Agent': 'JWLibrary/14.3'},
-      ).timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final files = data['files']?[version.langCode];
-        if (files != null) {
-          final epubs = files['EPUB'] as List?;
-          if (epubs != null && epubs.isNotEmpty) {
-            return epubs.first['file']['url'];
-          }
-          final jwpubs = files['JWPUB'] as List?;
-          if (jwpubs != null && jwpubs.isNotEmpty) {
-            return jwpubs.first['file']['url'];
-          }
-        }
+      final client = PubMediaClient();
+      final pub = await client.getPublication(
+        pubCode: version.pubCode,
+        language: version.langCode,
+        fileFormat: 'JWPUB,EPUB',
+      );
+      final preferred = pub?.preferredFile(
+        preferredLanguage: version.langCode,
+        preferredFormats: const ['JWPUB', 'EPUB'],
+      );
+      if (preferred != null && preferred.url.isNotEmpty) {
+        return preferred.url;
       }
     } catch (_) {}
 
@@ -274,45 +268,54 @@ class BibleService {
     BibleVersion version, {
     void Function(double progress)? onProgress,
   }) async {
+    if (_activeDownloads.contains(version.id)) return;
+    _activeDownloads.add(version.id);
+
     final baseDir = await _getBiblesDirectory();
     final targetDir = Directory(p.join(baseDir.path, version.id));
     final tempZipFile = File(p.join(baseDir.path, '${version.id}_temp.zip'));
+    final client = PubMediaClient();
 
     try {
-      final downloadUrl = await resolveDownloadUrl(version);
+      final pub = await client.getPublication(
+        pubCode: version.pubCode,
+        language: version.langCode,
+        fileFormat: 'JWPUB,EPUB',
+      );
 
-      final request = http.Request('GET', Uri.parse(downloadUrl));
-      request.headers['User-Agent'] = 'JWLibrary/14.3';
+      final preferredFile = pub?.preferredFile(
+        preferredLanguage: version.langCode,
+        preferredFormats: const ['JWPUB', 'EPUB'],
+      );
 
-      final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
-      if (streamedResponse.statusCode != 200) {
-        throw HttpException(
-          'Falha no download da Bíblia (HTTP ${streamedResponse.statusCode})',
-          uri: Uri.parse(downloadUrl),
+      if (preferredFile != null) {
+        await client.downloadFile(
+          file: preferredFile,
+          destinationFile: tempZipFile,
+          onProgress: onProgress,
+          verifyChecksum: preferredFile.checksum.isNotEmpty,
+        );
+      } else {
+        final downloadUrl = await resolveDownloadUrl(version);
+        final fallbackFile = PubMediaFile(
+          url: downloadUrl,
+          filename: '${version.id}_temp.zip',
+          title: version.title,
+          language: version.langCode,
+          fileFormat: downloadUrl.endsWith('.jwpub') ? 'JWPUB' : 'EPUB',
+          sizeBytes: version.sizeBytes,
+        );
+        await client.downloadFile(
+          file: fallbackFile,
+          destinationFile: tempZipFile,
+          onProgress: onProgress,
+          verifyChecksum: false,
         );
       }
 
-      final totalBytes = streamedResponse.contentLength ?? version.sizeBytes;
-      var receivedBytes = 0;
-
-      final sink = tempZipFile.openWrite();
-
-      try {
-        await for (final chunk in streamedResponse.stream) {
-          sink.add(chunk);
-          receivedBytes += chunk.length;
-          if (totalBytes > 0 && onProgress != null) {
-            onProgress(receivedBytes / totalBytes);
-          }
-        }
-      } finally {
-        await sink.flush();
-        await sink.close();
-      }
-
-      // Extrai o pacote
+      // Extrai o pacote em background isolate para não travar a UI
       final bytes = await tempZipFile.readAsBytes();
-      final archive = ZipDecoder().decodeBytes(bytes);
+      final archive = await compute(_decodeZip, bytes);
 
       if (await targetDir.exists()) {
         await targetDir.delete(recursive: true);
@@ -322,36 +325,60 @@ class BibleService {
       // Se for JWPUB (que contém um ZIP interno 'contents')
       final contentsEntry = archive.findFile('contents');
       if (contentsEntry != null) {
-        final innerArchive = ZipDecoder().decodeBytes(contentsEntry.content as List<int>);
+        final innerArchive = await compute(_decodeZip, contentsEntry.content as List<int>);
         await _safeExtractArchive(innerArchive, targetDir);
       } else {
         // Pacote EPUB padrão
         await _safeExtractArchive(archive, targetDir);
       }
 
-      // Se for Bíblia de Estudo (nwtsty_t), extrai também o texto bíblico oficial (nwt_T.epub)
+      // Se for Bíblia de Estudo (nwtsty_t), extrai também o texto bíblico oficial (nwt)
       if (version.id == 'nwtsty_t') {
         try {
           final nwtTDir = Directory(p.join(baseDir.path, 'nwt_t'));
           if (await nwtTDir.exists()) {
             await _copyDirectory(nwtTDir, targetDir);
           } else {
-            const nwtTUrl = 'https://cfp2.jw-cdn.org/a/40194f/3/o/nwt_T.epub';
-            final nwtResp = await http.get(Uri.parse(nwtTUrl), headers: {'User-Agent': 'JWLibrary/14.3'});
-            if (nwtResp.statusCode == 200) {
-              final nwtArchive = ZipDecoder().decodeBytes(nwtResp.bodyBytes);
-              await _safeExtractArchive(nwtArchive, targetDir);
+            final nwtPub = await client.getPublication(
+              pubCode: 'nwt',
+              language: version.langCode,
+              fileFormat: 'JWPUB,EPUB',
+            );
+            final nwtFile = nwtPub?.preferredFile(preferredLanguage: version.langCode);
+            if (nwtFile != null) {
+              final nwtTemp = File(p.join(baseDir.path, 'nwt_temp_${version.langCode}.zip'));
+              try {
+                await client.downloadFile(
+                  file: nwtFile,
+                  destinationFile: nwtTemp,
+                  verifyChecksum: nwtFile.checksum.isNotEmpty,
+                );
+                final nwtBytes = await nwtTemp.readAsBytes();
+                final nwtArchive = await compute(_decodeZip, nwtBytes);
+                final inner = nwtArchive.findFile('contents');
+                if (inner != null) {
+                  final innerArchive = await compute(_decodeZip, inner.content as List<int>);
+                  await _safeExtractArchive(innerArchive, targetDir);
+                } else {
+                  await _safeExtractArchive(nwtArchive, targetDir);
+                }
+              } finally {
+                if (await nwtTemp.exists()) await nwtTemp.delete();
+              }
             }
           }
         } catch (_) {}
       }
     } finally {
-      // Limpeza garantida do arquivo temporário
+      client.close();
+      _activeDownloads.remove(version.id);
       if (await tempZipFile.exists()) {
         try {
           await tempZipFile.delete();
         } catch (_) {}
       }
+    }
+  }
     }
   }
 

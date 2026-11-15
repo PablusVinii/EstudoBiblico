@@ -1,10 +1,11 @@
 ﻿import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:encrypt/encrypt.dart' as enc;
 import 'package:path/path.dart' as p;
+import 'package:sqflite/sqflite.dart';
 
 class JwpubCryptoKeys {
   final Uint8List key;
@@ -53,6 +54,10 @@ class JwpubManifest {
   final int language;
   final String publicationType;
   final String dbFileName;
+  final int issueNumber;
+  final int? issueTagNumber;
+  final String coverTitle;
+  final String undatedSymbol;
 
   const JwpubManifest({
     required this.name,
@@ -61,10 +66,15 @@ class JwpubManifest {
     required this.language,
     required this.publicationType,
     required this.dbFileName,
+    this.issueNumber = 0,
+    this.issueTagNumber,
+    this.coverTitle = '',
+    this.undatedSymbol = '',
   });
 
   factory JwpubManifest.fromJson(Map<String, dynamic> json) {
     final pub = json['publication'] as Map<String, dynamic>? ?? {};
+    final issueProps = pub['issueProperties'] as Map<String, dynamic>? ?? {};
     return JwpubManifest(
       name: json['name']?.toString() ?? '',
       symbol: pub['symbol']?.toString() ?? '',
@@ -72,8 +82,55 @@ class JwpubManifest {
       language: int.tryParse(pub['language']?.toString() ?? '') ?? 0,
       publicationType: pub['publicationType']?.toString() ?? 'Unknown',
       dbFileName: pub['fileName']?.toString() ?? '',
+      issueNumber: int.tryParse(pub['issueNumber']?.toString() ?? '') ?? 0,
+      issueTagNumber: int.tryParse(pub['issueTagNumber']?.toString() ?? '') ??
+          int.tryParse(pub['issueId']?.toString() ?? ''),
+      coverTitle: issueProps['coverTitle']?.toString() ?? '',
+      undatedSymbol: pub['undatedSymbol']?.toString() ?? '',
     );
   }
+}
+
+class JwpubDocument {
+  final int documentId;
+  final int mepsDocumentId;
+  final String title;
+  final String tocTitle;
+  final int? chapterNumber;
+  final int? paragraphCount;
+  final int contentLength;
+  final String contentHtml;
+  final List<String> plainParagraphs;
+
+  const JwpubDocument({
+    required this.documentId,
+    required this.mepsDocumentId,
+    required this.title,
+    this.tocTitle = '',
+    this.chapterNumber,
+    this.paragraphCount,
+    this.contentLength = 0,
+    this.contentHtml = '',
+    this.plainParagraphs = const [],
+  });
+}
+
+class JwpubDatedText {
+  final int datedTextId;
+  final int documentId;
+  final String link;
+  final int firstDateOffset;
+  final int lastDateOffset;
+  final String caption;
+
+  const JwpubDatedText({
+    required this.datedTextId,
+    required this.documentId,
+    required this.link,
+    required this.firstDateOffset,
+    required this.lastDateOffset,
+    required this.caption,
+  });
 }
 
 class JwpubService {
@@ -177,6 +234,151 @@ class JwpubService {
     return utf8.decode(decompressed);
   }
 
+  /// Extrai parágrafos em texto puro de um documento HTML descriptografado
+  static List<String> extractPlainParagraphs(String xhtml) {
+    if (xhtml.isEmpty) return const [];
+    final paragraphs = <String>[];
+    final pMatches = RegExp(r'<p[^>]*>(.*?)</p>', dotAll: true, caseSensitive: false).allMatches(xhtml);
+    for (final m in pMatches) {
+      final inner = m.group(1) ?? '';
+      final clean = inner.replaceAll(RegExp(r'<[^>]+>'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (clean.length > 3) {
+        paragraphs.add(clean);
+      }
+    }
+    return paragraphs;
+  }
+
+  /// Abre o banco SQLite interno (.db) contido na pasta extraída do JWPUB
+  static Future<Database> openJwpubDatabase(Directory extractedDir, [String? dbFileName]) async {
+    String? resolvedDbPath;
+    if (dbFileName != null && dbFileName.isNotEmpty) {
+      final explicitFile = File(p.join(extractedDir.path, dbFileName));
+      if (await explicitFile.exists()) {
+        resolvedDbPath = explicitFile.path;
+      }
+    }
+
+    if (resolvedDbPath == null) {
+      await for (final entity in extractedDir.list(recursive: true)) {
+        if (entity is File && entity.path.endsWith('.db')) {
+          resolvedDbPath = entity.path;
+          break;
+        }
+      }
+    }
+
+    if (resolvedDbPath == null) {
+      throw const FileSystemException('Nenhum banco de dados SQLite .db encontrado no JWPUB');
+    }
+
+    return await openDatabase(resolvedDbPath, readOnly: true);
+  }
+
+  /// Lê todos os documentos da tabela Document com descriptografia sob demanda
+  static Future<List<JwpubDocument>> readDocuments({
+    required Database db,
+    required JwpubManifest manifest,
+    bool shouldDecrypt = true,
+  }) async {
+    final rows = await db.rawQuery('''
+      SELECT
+        DocumentId, MepsDocumentId, Title, TocTitle,
+        ChapterNumber, ParagraphCount, ContentLength, Content
+      FROM Document
+      ORDER BY DocumentId
+    ''');
+
+    JwpubCryptoKeys? keys;
+    if (shouldDecrypt && manifest.symbol.isNotEmpty && manifest.year > 0) {
+      final issueTag = manifest.issueTagNumber ?? (manifest.issueNumber > 0 ? manifest.issueNumber : null);
+      keys = deriveKeyAndIv(
+        languageIndex: manifest.language,
+        symbol: manifest.symbol,
+        year: manifest.year,
+        issueTagNumber: issueTag,
+      );
+    }
+
+    final documents = <JwpubDocument>[];
+
+    for (final r in rows) {
+      final docId = r['DocumentId'] as int? ?? 0;
+      final mepsId = r['MepsDocumentId'] as int? ?? 0;
+      final title = r['Title']?.toString() ?? '';
+      final tocTitle = r['TocTitle']?.toString() ?? '';
+      final chapterNum = r['ChapterNumber'] as int?;
+      final pCount = r['ParagraphCount'] as int?;
+      final length = r['ContentLength'] as int? ?? 0;
+      final rawBlob = r['Content'];
+
+      String contentHtml = '';
+      if (keys != null && rawBlob != null && rawBlob is List<int> && rawBlob.isNotEmpty) {
+        try {
+          contentHtml = decryptContent(
+            encryptedBytes: rawBlob,
+            key: keys.key,
+            iv: keys.iv,
+          );
+        } catch (_) {
+          // Tenta chave alternativa sem issueTagNumber em caso de fallback
+          try {
+            final fallbackKeys = deriveKeyAndIv(
+              languageIndex: manifest.language,
+              symbol: manifest.symbol,
+              year: manifest.year,
+            );
+            contentHtml = decryptContent(
+              encryptedBytes: rawBlob,
+              key: fallbackKeys.key,
+              iv: fallbackKeys.iv,
+            );
+          } catch (_) {
+            contentHtml = '';
+          }
+        }
+      }
+
+      final plainParagraphs = extractPlainParagraphs(contentHtml);
+
+      documents.add(JwpubDocument(
+        documentId: docId,
+        mepsDocumentId: mepsId,
+        title: title,
+        tocTitle: tocTitle,
+        chapterNumber: chapterNum,
+        paragraphCount: pCount,
+        contentLength: length,
+        contentHtml: contentHtml,
+        plainParagraphs: plainParagraphs,
+      ));
+    }
+
+    return documents;
+  }
+
+  /// Lê as datas de estudo da tabela DatedText para associar aos artigos
+  static Future<List<JwpubDatedText>> readDatedTexts(Database db) async {
+    try {
+      final rows = await db.rawQuery('''
+        SELECT DatedTextId, DocumentId, Link, FirstDateOffset, LastDateOffset, Caption
+        FROM DatedText
+        ORDER BY DatedTextId
+      ''');
+
+      return rows.map((r) => JwpubDatedText(
+        datedTextId: r['DatedTextId'] as int? ?? 0,
+        documentId: r['DocumentId'] as int? ?? 0,
+        link: r['Link']?.toString() ?? '',
+        firstDateOffset: r['FirstDateOffset'] as int? ?? 0,
+        lastDateOffset: r['LastDateOffset'] as int? ?? 0,
+        caption: r['Caption']?.toString() ?? '',
+      )).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// Analisa link de citação bíblica no formato `jwpub://b/NWTR/{livro}:{cap}:{vers}`
   static JwpubBibleCitation? parseBibleLink(String url) {
     if (!url.startsWith('jwpub://b/NWTR/')) return null;
@@ -221,14 +423,15 @@ class JwpubService {
     if (singleMatch != null) {
       final bookNum = int.parse(singleMatch.group(1)!);
       final ch = int.parse(singleMatch.group(2)!);
-      final v = int.parse(singleMatch.group(3)!);
+      final startV = int.parse(singleMatch.group(3)!);
+      final endV = int.parse(singleMatch.group(3)!);
       final bookName = canonicalBookNames[bookNum] ?? 'Livro $bookNum';
       return JwpubBibleCitation(
         bookNumber: bookNum,
         bookName: bookName,
         chapter: ch,
-        startVerse: v,
-        endVerse: v,
+        startVerse: startV,
+        endVerse: endV,
       );
     }
 
@@ -260,13 +463,17 @@ class JwpubService {
     }
   }
 
+  static Archive _decodeZipBytes(List<int> bytes) {
+    return ZipDecoder().decodeBytes(bytes);
+  }
+
   /// Descompacta um pacote `.jwpub` extraindo o `manifest.json` e o `contents`
   static Future<JwpubManifest?> extractJwpubPackage({
     required File jwpubFile,
     required Directory destinationDir,
   }) async {
     final bytes = await jwpubFile.readAsBytes();
-    final outerArchive = ZipDecoder().decodeBytes(bytes);
+    final outerArchive = await compute(_decodeZipBytes, bytes);
 
     // 1. Extrai o manifest.json
     final manifestEntry = outerArchive.findFile('manifest.json');
@@ -280,7 +487,7 @@ class JwpubService {
     // 2. Extrai o ZIP interno 'contents'
     final contentsEntry = outerArchive.findFile('contents');
     if (contentsEntry != null) {
-      final innerArchive = ZipDecoder().decodeBytes(contentsEntry.content as List<int>);
+      final innerArchive = await compute(_decodeZipBytes, contentsEntry.content as List<int>);
       await _safeExtractArchive(innerArchive, destinationDir);
     } else {
       await _safeExtractArchive(outerArchive, destinationDir);
@@ -302,3 +509,5 @@ class JwpubService {
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 }
+
+

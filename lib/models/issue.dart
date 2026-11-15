@@ -8,6 +8,7 @@ class WatchtowerIssue {
   String? localPath;
   final String? studyPeriod; // e.g. "Estudos para as semanas de 2 a 29 de março"
   final String? fileSize; // e.g. "3 MB", "4 MB"
+  final String? checksum; // SHA-256 integridade
   final bool isPublicEdition; // true se for "Edição para o Público", false se for "Edição de Estudo"
 
   WatchtowerIssue({
@@ -20,6 +21,7 @@ class WatchtowerIssue {
     this.localPath,
     this.studyPeriod,
     this.fileSize,
+    this.checksum,
     this.isPublicEdition = false,
   });
 
@@ -33,6 +35,7 @@ class WatchtowerIssue {
     'localPath': localPath,
     'studyPeriod': studyPeriod,
     'fileSize': fileSize,
+    'checksum': checksum,
     'isPublicEdition': isPublicEdition,
   };
 
@@ -46,6 +49,7 @@ class WatchtowerIssue {
     localPath: json['localPath'],
     studyPeriod: json['studyPeriod'],
     fileSize: json['fileSize'],
+    checksum: json['checksum'],
     isPublicEdition: json['isPublicEdition'] ?? false,
   );
 }

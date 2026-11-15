@@ -1,5 +1,6 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -7,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
 class JwBackupService {
+  static Archive _decodeZip(List<int> bytes) => ZipDecoder().decodeBytes(bytes);
+
   /// Exporta todas as anotações e respostas para um arquivo oficial `.jwlibrary`
   static Future<String> exportToJwLibrary() async {
     final appDir = await getApplicationDocumentsDirectory();
@@ -45,6 +48,32 @@ class JwBackupService {
         ''');
 
         await db.execute('''
+          CREATE TABLE UserMark (
+            UserMarkId INTEGER PRIMARY KEY AUTOINCREMENT,
+            ColorIndex INTEGER DEFAULT 1,
+            LocationId INTEGER NOT NULL,
+            StyleIndex INTEGER DEFAULT 0,
+            UserMarkGuid TEXT NOT NULL,
+            Version INTEGER DEFAULT 1
+          );
+        ''');
+
+        await db.execute('''
+          CREATE TABLE Note (
+            NoteId INTEGER PRIMARY KEY AUTOINCREMENT,
+            Guid TEXT NOT NULL,
+            UserMarkId INTEGER,
+            LocationId INTEGER,
+            Title TEXT,
+            Content TEXT NOT NULL,
+            LastModified TEXT NOT NULL,
+            Created TEXT NOT NULL,
+            BlockType INTEGER DEFAULT 1,
+            BlockIdentifier INTEGER
+          );
+        ''');
+
+        await db.execute('''
           CREATE TABLE InputField (
             LocationId INTEGER NOT NULL,
             TextTag TEXT NOT NULL,
@@ -57,8 +86,10 @@ class JwBackupService {
     );
 
     int locationId = 1;
+    final nowIso = DateTime.now().toUtc().toIso8601String();
+
     try {
-      // Insere anotações no banco
+      // Insere anotações no banco com suporte a Note e InputField
       for (final key in keys) {
         if (key.startsWith('study_ans_')) {
           final val = prefs.getString(key) ?? '';
@@ -67,6 +98,7 @@ class JwBackupService {
             final lastPIndex = cleanKey.lastIndexOf('_p');
             final articleId = lastPIndex != -1 ? cleanKey.substring(0, lastPIndex) : cleanKey;
             final pNum = lastPIndex != -1 ? cleanKey.substring(lastPIndex + 2) : '1';
+            final pInt = int.tryParse(pNum) ?? 1;
 
             await db.insert('Location', {
               'LocationId': locationId,
@@ -78,6 +110,18 @@ class JwBackupService {
               'LocationId': locationId,
               'TextTag': 'p$pNum',
               'Value': val,
+            });
+
+            await db.insert('Note', {
+              'NoteId': locationId,
+              'Guid': 'note_${DateTime.now().microsecondsSinceEpoch}_$locationId',
+              'LocationId': locationId,
+              'Title': 'Parágrafo $pNum',
+              'Content': val,
+              'LastModified': nowIso,
+              'Created': nowIso,
+              'BlockType': 1,
+              'BlockIdentifier': pInt,
             });
 
             locationId++;
@@ -128,13 +172,13 @@ class JwBackupService {
     return backupFilePath;
   }
 
-  /// Restaura as anotações a partir de um arquivo .jwlibrary oficial
+  /// Restaura as anotações a partir de um arquivo .jwlibrary oficial (tanto de Note quanto de InputField)
   static Future<int> importFromJwLibrary(String filePath) async {
     final file = File(filePath);
     if (!await file.exists()) return 0;
 
     final bytes = await file.readAsBytes();
-    final archive = ZipDecoder().decodeBytes(bytes);
+    final archive = await compute(_decodeZip, bytes);
 
     ArchiveFile? dbFile;
     for (final f in archive) {
@@ -150,30 +194,55 @@ class JwBackupService {
     final tempDbPath = p.join(appDir.path, 'restore_userData.db');
     await File(tempDbPath).writeAsBytes(dbFile.content as List<int>);
 
-    final db = await openDatabase(tempDbPath);
+    final db = await openDatabase(tempDbPath, readOnly: true);
     final prefs = await SharedPreferences.getInstance();
     int importedCount = 0;
 
     try {
-      final rows = await db.rawQuery('''
-        SELECT Location.Title, InputField.TextTag, InputField.Value 
-        FROM InputField 
-        LEFT JOIN Location ON InputField.LocationId = Location.LocationId;
-      ''');
+      // 1. Tenta restaurar da tabela Note oficial
+      try {
+        final noteRows = await db.rawQuery('''
+          SELECT Location.Title, Note.Title AS NoteTitle, Note.Content, Note.BlockIdentifier
+          FROM Note
+          LEFT JOIN Location ON Note.LocationId = Location.LocationId
+        ''');
 
-      for (final r in rows) {
-        final title = r['Title']?.toString() ?? 'imported';
-        final tag = r['TextTag']?.toString() ?? 'p1';
-        final val = r['Value']?.toString() ?? '';
+        for (final r in noteRows) {
+          final title = r['Title']?.toString() ?? 'imported';
+          final content = r['Content']?.toString() ?? '';
+          final blockId = r['BlockIdentifier'] as int? ?? 1;
 
-        if (val.trim().isNotEmpty) {
-          final pNum = tag.replaceAll(RegExp(r'[^0-9]'), '');
-          final key = 'study_ans_${title}_p$pNum';
-          await prefs.setString(key, val);
-          importedCount++;
+          if (content.trim().isNotEmpty) {
+            final key = 'study_ans_${title}_p$blockId';
+            await prefs.setString(key, content);
+            importedCount++;
+          }
         }
-      }
-    } catch (_) {
+      } catch (_) {}
+
+      // 2. Tenta restaurar da tabela InputField (caso o backup use formulários)
+      try {
+        final inputRows = await db.rawQuery('''
+          SELECT Location.Title, InputField.TextTag, InputField.Value 
+          FROM InputField 
+          LEFT JOIN Location ON InputField.LocationId = Location.LocationId
+        ''');
+
+        for (final r in inputRows) {
+          final title = r['Title']?.toString() ?? 'imported';
+          final tag = r['TextTag']?.toString() ?? 'p1';
+          final val = r['Value']?.toString() ?? '';
+
+          if (val.trim().isNotEmpty) {
+            final pNum = tag.replaceAll(RegExp(r'[^0-9]'), '');
+            final key = 'study_ans_${title}_p$pNum';
+            if (!prefs.containsKey(key)) {
+              await prefs.setString(key, val);
+              importedCount++;
+            }
+          }
+        }
+      } catch (_) {}
     } finally {
       await db.close();
       final f = File(tempDbPath);
@@ -183,4 +252,3 @@ class JwBackupService {
     return importedCount;
   }
 }
-

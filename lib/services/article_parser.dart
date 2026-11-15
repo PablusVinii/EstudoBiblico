@@ -6,9 +6,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../models/article.dart';
 import 'study_storage_service.dart';
+import 'jwpub_service.dart';
 
 class ArticleParser {
   /// Extrai as imagens do arquivo EPUB para um diretório local e retorna um mapa [nomeArquivo -> caminhoAbsoluto]
+  static Archive _decodeZip(List<int> bytes) => ZipDecoder().decodeBytes(bytes);
+
   static Future<Map<String, String>> _extractImages(Archive archive, String issueCode) async {
     final imageMap = <String, String>{};
     try {
@@ -40,12 +43,16 @@ class ArticleParser {
   }
 
   /// Faz o parse completo da edição, extraindo imagens de capa, período de estudo e artigos
-  static Future<ParsedIssue> parseIssue(String epubPath, [String? explicitIssueCode]) async {
-    final bytes = await File(epubPath).readAsBytes();
-    final archive = ZipDecoder().decodeBytes(bytes);
+  static Future<ParsedIssue> parseIssue(String filePath, [String? explicitIssueCode]) async {
+    if (filePath.toLowerCase().endsWith('.jwpub')) {
+      return _parseJwpubIssue(filePath, explicitIssueCode);
+    }
+
+    final bytes = await File(filePath).readAsBytes();
+    final archive = await compute(_decodeZip, bytes);
 
     final issueCode = explicitIssueCode ??
-        p.basenameWithoutExtension(epubPath).replaceAll(RegExp(r'[^0-9]'), '');
+        p.basenameWithoutExtension(filePath).replaceAll(RegExp(r'[^0-9]'), '');
 
     final imageMap = await _extractImages(archive, issueCode);
 
@@ -128,6 +135,89 @@ class ArticleParser {
           if (article != null && article.paragraphs.isNotEmpty) {
             articles.add(article);
           }
+        }
+      }
+    }
+
+    return ParsedIssue(
+      issueCode: issueCode,
+      title: issueTitle,
+      studyPeriod: studyPeriod,
+      coverImagePath: coverImagePath,
+      articles: articles,
+    );
+  }
+
+  /// Faz o parse completo de uma publicação JWPUB extraindo o banco SQLite contents/symbol.db
+  static Future<ParsedIssue> _parseJwpubIssue(String jwpubPath, [String? explicitIssueCode]) async {
+    final issueCode = explicitIssueCode ??
+        p.basenameWithoutExtension(jwpubPath).replaceAll(RegExp(r'[^0-9]'), '');
+
+    final appDir = await getApplicationDocumentsDirectory();
+    final extractDir = Directory(p.join(appDir.path, 'issues', 'extracted_jwpub', issueCode));
+    if (!await extractDir.exists()) {
+      await extractDir.create(recursive: true);
+    }
+
+    final manifest = await JwpubService.extractJwpubPackage(
+      jwpubFile: File(jwpubPath),
+      destinationDir: extractDir,
+    );
+
+    // Mapeia imagens extraídas da pasta contents
+    final imageMap = <String, String>{};
+    String? coverImagePath;
+    await for (final entity in extractDir.list(recursive: true)) {
+      if (entity is File) {
+        final lower = entity.path.toLowerCase();
+        if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp')) {
+          final bName = p.basename(entity.path);
+          imageMap[bName] = entity.path;
+          if (lower.contains('cvr') || lower.contains('cover')) {
+            coverImagePath = entity.path;
+          }
+        }
+      }
+    }
+
+    final db = await JwpubService.openJwpubDatabase(extractDir, manifest?.dbFileName);
+    List<JwpubDocument> docs = const [];
+    List<JwpubDatedText> datedTexts = const [];
+    try {
+      if (manifest != null) {
+        docs = await JwpubService.readDocuments(db: db, manifest: manifest);
+      }
+      datedTexts = await JwpubService.readDatedTexts(db);
+    } finally {
+      await db.close();
+    }
+
+    // Mapa de datas de estudo por MepsDocumentId
+    final datesByMepsId = <int, String>{};
+    for (final dt in datedTexts) {
+      final match = RegExp(r':(\d+)').firstMatch(dt.link);
+      if (match != null) {
+        final id = int.tryParse(match.group(1)!);
+        if (id != null) {
+          datesByMepsId[id] = dt.caption.replaceAll(RegExp(r'<[^>]+>'), ' ').trim();
+        }
+      }
+    }
+
+    final articles = <StudyArticle>[];
+    String issueTitle = manifest?.name.isNotEmpty == true ? manifest!.name : 'A Sentinela $issueCode';
+    String? studyPeriod = manifest?.coverTitle.isNotEmpty == true ? manifest!.coverTitle : null;
+
+    for (final doc in docs) {
+      if (doc.contentHtml.contains('class="qu"') ||
+          doc.contentHtml.contains('id="q') ||
+          doc.contentHtml.contains('data-pnum=') ||
+          doc.contentHtml.contains('class="contextTtl"')) {
+        final docFileName = '${doc.mepsDocumentId}.xhtml';
+        final tocDate = datesByMepsId[doc.mepsDocumentId];
+        final article = await _parseHtmlArticle(docFileName, doc.contentHtml, imageMap, tocDate);
+        if (article != null && article.paragraphs.isNotEmpty) {
+          articles.add(article);
         }
       }
     }
