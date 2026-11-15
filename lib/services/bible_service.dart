@@ -1,3 +1,4 @@
+import 'bible_content_catalog.dart';
 import 'dart:async';
 import 'pub_media_client.dart';
 import 'package:flutter/foundation.dart';
@@ -101,74 +102,7 @@ class BibleService {
     BibleBook(id: 66, name: 'Apocalipse', abbreviation: 'Re', totalChapters: 22, isHebrew: false, category: 'revelation'),
   ];
 
-  static const List<BibleVersion> defaultVersions = [
-    BibleVersion(
-      id: 'nwt_t',
-      pubCode: 'nwt',
-      title: 'Tradução do Novo Mundo da Bíblia Sagrada',
-      shortTitle: 'Tradução do Novo Mundo',
-      languageName: 'Português (Brasil)',
-      langCode: 'T',
-      sizeLabel: '15 MB',
-      sizeBytes: 14846651,
-      directUrl: 'https://cfp2.jw-cdn.org/a/40194f/3/o/nwt_T.epub',
-    ),
-    BibleVersion(
-      id: 'nwtsty_t',
-      pubCode: 'nwtsty',
-      title: 'Tradução do Novo Mundo da Bíblia Sagrada (Edição de Estudo)',
-      shortTitle: 'Bíblia de Estudo',
-      languageName: 'Português (Brasil)',
-      langCode: 'T',
-      sizeLabel: '120 MB',
-      sizeBytes: 126325128,
-      directUrl: 'https://cfp2.jw-cdn.org/a/5faae3/12/o/nwtsty_T.jwpub',
-    ),
-    BibleVersion(
-      id: 'bi12_t',
-      pubCode: 'bi12',
-      title: 'Tradução do Novo Mundo das Escrituras Sagradas com Referências',
-      shortTitle: 'Bíblia com Referências (1986)',
-      languageName: 'Português (Brasil)',
-      langCode: 'T',
-      sizeLabel: '14 MB',
-      sizeBytes: 3686238,
-      directUrl: 'https://cfp2.jw-cdn.org/a/94ab7c/1/o/bi12_T.epub',
-    ),
-    BibleVersion(
-      id: 'nwt_tpo',
-      pubCode: 'nwt',
-      title: 'Tradução do Novo Mundo da Bíblia Sagrada',
-      shortTitle: 'Tradução do Novo Mundo (Portugal)',
-      languageName: 'Português (Portugal)',
-      langCode: 'TPO',
-      sizeLabel: '15 MB',
-      sizeBytes: 15825045,
-      directUrl: 'https://cfp2.jw-cdn.org/a/9f7dec4/3/o/nwt_TPO.epub',
-    ),
-    BibleVersion(
-      id: 'nwt_e',
-      pubCode: 'nwt',
-      title: 'New World Translation of the Holy Scriptures',
-      shortTitle: 'New World Translation',
-      languageName: 'English',
-      langCode: 'E',
-      sizeLabel: '15 MB',
-      sizeBytes: 15600000,
-      directUrl: 'https://cfp2.jw-cdn.org/a/40194f/3/o/nwt_E.epub',
-    ),
-    BibleVersion(
-      id: 'nwt_s',
-      pubCode: 'nwt',
-      title: 'Traducción del Nuevo Mundo de las Santas Escrituras',
-      shortTitle: 'Traducción del Nuevo Mundo',
-      languageName: 'Español',
-      langCode: 'S',
-      sizeLabel: '15 MB',
-      sizeBytes: 15900000,
-      directUrl: 'https://cfp2.jw-cdn.org/a/40194f/3/o/nwt_S.epub',
-    ),
-  ];
+  static const List<BibleVersion> defaultVersions = BibleContentCatalog.defaultVersions;
 
   Future<String> getActiveVersionId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -529,22 +463,7 @@ class BibleService {
     return _parseXhtmlChapter(book, chapter, xhtml);
   }
 
-  static const Map<int, String> _bi12BookAbbr = {
-    1: 'GE', 2: 'EX', 3: 'LE', 4: 'NU', 5: 'DE',
-    6: 'JOS', 7: 'JG', 8: 'RU', 9: '1SA', 10: '2SA',
-    11: '1KI', 12: '2KI', 13: '1CH', 14: '2CH', 15: 'EZR',
-    16: 'NE', 17: 'ES', 18: 'JOB', 19: 'PS', 20: 'PR',
-    21: 'EC', 22: 'CA', 23: 'ISA', 24: 'JER', 25: 'LA',
-    26: 'EZE', 27: 'DA', 28: 'HO', 29: 'JOE', 30: 'AM',
-    31: 'OB', 32: 'JON', 33: 'MIC', 34: 'NA', 35: 'HAB',
-    36: 'ZEP', 37: 'HAG', 38: 'ZEC', 39: 'MAL', 40: 'MT',
-    41: 'MR', 42: 'LU', 43: 'JOH', 44: 'AC', 45: 'RO',
-    46: '1CO', 47: '2CO', 48: 'GA', 49: 'EPH', 50: 'PHP',
-    51: 'COL', 52: '1TH', 53: '2TH', 54: '1TI', 55: '2TI',
-    56: 'TIT', 57: 'PHM', 58: 'HEB', 59: 'JAS', 60: '1PE',
-    61: '2PE', 62: '1JO', 63: '2JO', 64: '3JO', 65: 'JUDE',
-    66: 'RE',
-  };
+  static const Map<int, String> _bi12BookAbbr = BibleContentCatalog.bi12BookAbbr;
 
   Future<BibleChapterContent?> _tryLoadFromBi12(
     Directory targetDir,
