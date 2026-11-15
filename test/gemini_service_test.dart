@@ -86,6 +86,22 @@ void main() {
       final parsed = service.parseModelResponse(json);
       expect(parsed.answer, equals('Este parágrafo nos ensina a ser humildes.'));
       expect(parsed.keyPoint, equals('Este é o ponto chave'));
+      expect(parsed.directComment, isNull);
+      expect(parsed.additionalComment, isNull);
+    });
+
+    test('parses and sanitizes dual comments from jw-meeting-prep schema', () {
+      const json = '''{
+        "answer": "Jesus mostrou humildade ao lavar os pés dos discípulos.",
+        "directComment": "Olá, irmãos! Jesus foi humilde e não buscou glória para si.",
+        "additionalComment": "Queridos irmãos, Filipenses 2:5-8 destaca que Jesus abriu mão de sua posição celestial.",
+        "keyPoint": "Jesus mostrou humildade"
+      }''';
+      final parsed = service.parseModelResponse(json);
+      expect(parsed.answer, equals('Jesus mostrou humildade ao lavar os pés dos discípulos.'));
+      expect(parsed.directComment, equals('Jesus foi humilde e não buscou glória para si.'));
+      expect(parsed.additionalComment, equals('Filipenses 2:5-8 destaca que Jesus abriu mão de sua posição celestial.'));
+      expect(parsed.keyPoint, equals('Jesus mostrou humildade'));
     });
   });
 }

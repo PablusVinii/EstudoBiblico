@@ -79,6 +79,12 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
         if (pSaved['keyPoint'] != null && pSaved['keyPoint']!.isNotEmpty) {
           p.highlightedKeyPoint = pSaved['keyPoint']!;
         }
+        if (pSaved['directComment'] != null && pSaved['directComment']!.isNotEmpty) {
+          p.directComment = pSaved['directComment']!;
+        }
+        if (pSaved['additionalComment'] != null && pSaved['additionalComment']!.isNotEmpty) {
+          p.additionalComment = pSaved['additionalComment']!;
+        }
       }
     }
 
@@ -138,6 +144,8 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
       setState(() {
         paragraph.userAnswer = result.answer;
         paragraph.highlightedKeyPoint = result.keyPoint;
+        paragraph.directComment = result.directComment;
+        paragraph.additionalComment = result.additionalComment;
         _controllers[paragraph.number]?.text = result.answer;
       });
 
@@ -147,6 +155,18 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
         paragraphNumber: paragraph.number,
         answer: result.answer,
         keyPoint: result.keyPoint,
+        directComment: result.directComment,
+        additionalComment: result.additionalComment,
+      );
+
+      // Salva no cache do Gemini (Skill cost-aware-llm-pipeline)
+      await StudyStorageService.saveAiCommentCache(
+        articleId: widget.article.id,
+        paragraphNumber: paragraph.number,
+        answer: result.answer,
+        keyPoint: result.keyPoint,
+        directComment: result.directComment,
+        additionalComment: result.additionalComment,
       );
     } catch (e) {
       if (mounted) {
@@ -702,6 +722,8 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
   Widget _buildAnswerBox(StudyParagraph paragraph) {
     final ctrl = _controllers[paragraph.number];
     final isGenerating = paragraph.isGenerating;
+    final hasDirect = paragraph.directComment != null && paragraph.directComment!.isNotEmpty;
+    final hasAddit = paragraph.additionalComment != null && paragraph.additionalComment!.isNotEmpty;
 
     return Container(
       decoration: BoxDecoration(
@@ -710,7 +732,155 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
         border: Border.all(color: const Color(0xFF2C2C2C)),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (hasDirect || hasAddit)
+            Padding(
+              padding: const EdgeInsets.only(top: 8, left: 10, right: 10, bottom: 2),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    if (hasDirect)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: InkWell(
+                          onTap: () {
+                            setState(() {
+                              paragraph.userAnswer = paragraph.directComment!;
+                              ctrl?.text = paragraph.directComment!;
+                            });
+                            StudyStorageService.saveParagraphData(
+                              articleId: widget.article.id,
+                              paragraphNumber: paragraph.number,
+                              answer: paragraph.directComment!,
+                              keyPoint: paragraph.highlightedKeyPoint,
+                              directComment: paragraph.directComment,
+                              additionalComment: paragraph.additionalComment,
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: (ctrl?.text.trim() == paragraph.directComment?.trim())
+                                  ? const Color(0xFF7C4DFF).withValues(alpha: 0.35)
+                                  : const Color(0xFF252525),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: (ctrl?.text.trim() == paragraph.directComment?.trim())
+                                    ? const Color(0xFFB388FF)
+                                    : const Color(0xFF3E3E3E),
+                              ),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('⚡', style: TextStyle(fontSize: 12)),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Direto (1-2 frases)',
+                                  style: TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (hasAddit)
+                      InkWell(
+                        onTap: () {
+                          setState(() {
+                            paragraph.userAnswer = paragraph.additionalComment!;
+                            ctrl?.text = paragraph.additionalComment!;
+                          });
+                          StudyStorageService.saveParagraphData(
+                            articleId: widget.article.id,
+                            paragraphNumber: paragraph.number,
+                            answer: paragraph.additionalComment!,
+                            keyPoint: paragraph.highlightedKeyPoint,
+                            directComment: paragraph.directComment,
+                            additionalComment: paragraph.additionalComment,
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: (ctrl?.text.trim() == paragraph.additionalComment?.trim())
+                                ? const Color(0xFF7C4DFF).withValues(alpha: 0.35)
+                                : const Color(0xFF252525),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: (ctrl?.text.trim() == paragraph.additionalComment?.trim())
+                                    ? const Color(0xFFB388FF)
+                                    : const Color(0xFF3E3E3E),
+                            ),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('📖', style: TextStyle(fontSize: 12)),
+                              SizedBox(width: 4),
+                              Text(
+                                'Aprofundado / Aplicação',
+                                style: TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    if (hasDirect && hasAddit)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: InkWell(
+                          onTap: () {
+                            final fullText = '💬 Comentário Direto:\n${paragraph.directComment!}\n\n💡 Comentário Adicional:\n${paragraph.additionalComment!}';
+                            setState(() {
+                              paragraph.userAnswer = fullText;
+                              ctrl?.text = fullText;
+                            });
+                            StudyStorageService.saveParagraphData(
+                              articleId: widget.article.id,
+                              paragraphNumber: paragraph.number,
+                              answer: fullText,
+                              keyPoint: paragraph.highlightedKeyPoint,
+                              directComment: paragraph.directComment,
+                              additionalComment: paragraph.additionalComment,
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: (ctrl?.text.trim().contains('💬 Comentário Direto:') ?? false)
+                                  ? const Color(0xFF7C4DFF).withValues(alpha: 0.35)
+                                  : const Color(0xFF252525),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: (ctrl?.text.trim().contains('💬 Comentário Direto:') ?? false)
+                                    ? const Color(0xFFB388FF)
+                                    : const Color(0xFF3E3E3E),
+                              ),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('📝', style: TextStyle(fontSize: 12)),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Completo',
+                                  style: TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
           TextField(
             controller: ctrl,
             maxLines: null,
@@ -729,6 +899,8 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
                 paragraphNumber: paragraph.number,
                 answer: val,
                 keyPoint: paragraph.highlightedKeyPoint,
+                directComment: paragraph.directComment,
+                additionalComment: paragraph.additionalComment,
               );
             },
           ),

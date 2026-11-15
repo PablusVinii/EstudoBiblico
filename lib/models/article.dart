@@ -64,6 +64,8 @@ class StudyParagraph {
   final String? illustrationCaption;
   String userAnswer;
   String? highlightedKeyPoint;
+  String? directComment;
+  String? additionalComment;
   bool isGenerating;
 
   StudyParagraph({
@@ -76,6 +78,8 @@ class StudyParagraph {
     this.illustrationCaption,
     this.userAnswer = '',
     this.highlightedKeyPoint,
+    this.directComment,
+    this.additionalComment,
     this.isGenerating = false,
   });
 }

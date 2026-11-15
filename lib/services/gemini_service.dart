@@ -5,8 +5,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 class GeminiResult {
   final String answer;
   final String keyPoint;
+  final String? directComment;
+  final String? additionalComment;
 
-  GeminiResult({required this.answer, required this.keyPoint});
+  GeminiResult({
+    required this.answer,
+    required this.keyPoint,
+    this.directComment,
+    this.additionalComment,
+  });
 }
 
 class ModelDiscoveryResult {
@@ -403,9 +410,15 @@ NUNCA inclua saudações, cumprimentos, vocativos ou apresentações no início 
 
 (c) [Sua resposta direta para a parte c, se houver]
 
+5. MODALIDADES DE COMENTÁRIO PARA A REUNIÃO (Skill jw-meeting-prep):
+- "directComment": Um comentário inicial breve e objetivo (1 a 2 frases) respondendo DIRETAMENTE à pergunta do parágrafo, ideal para quem responde logo no início da consideração. Proibido saudações.
+- "additionalComment": Um comentário complementar e aprofundado, que traz uma aplicação prática para o dia a dia, explica o raciocínio de um texto bíblico citado ou enriquece a consideração do parágrafo. Proibido saudações.
+
 Retorne EXCLUSIVAMENTE um objeto JSON no formato:
 {
   "answer": "Sua resposta com as próprias palavras aqui",
+  "directComment": "Comentário inicial direto de 1 a 2 frases para responder logo",
+  "additionalComment": "Comentário adicional rico com raciocínio ou aplicação prática",
   "keyPoint": "Trecho literal exato presente no parágrafo"
 }
 ''';
@@ -469,18 +482,26 @@ Retorne EXCLUSIVAMENTE um objeto JSON no formato:
     try {
       final jsonResponse = jsonDecode(clean);
       final rawAnswer = (jsonResponse['answer'] ?? '').toString().trim();
+      final rawDirect = (jsonResponse['directComment'] ?? '').toString().trim();
+      final rawAddit = (jsonResponse['additionalComment'] ?? '').toString().trim();
       return GeminiResult(
         answer: sanitizeAnswer(rawAnswer),
         keyPoint: (jsonResponse['keyPoint'] ?? '').toString().trim(),
+        directComment: rawDirect.isNotEmpty ? sanitizeAnswer(rawDirect) : null,
+        additionalComment: rawAddit.isNotEmpty ? sanitizeAnswer(rawAddit) : null,
       );
     } catch (_) {
       final answerMatch = RegExp(r'"answer"\s*:\s*"([^"]+)"').firstMatch(clean);
+      final directMatch = RegExp(r'"directComment"\s*:\s*"([^"]+)"').firstMatch(clean);
+      final additMatch = RegExp(r'"additionalComment"\s*:\s*"([^"]+)"').firstMatch(clean);
       final keyPointMatch = RegExp(r'"keyPoint"\s*:\s*"([^"]+)"').firstMatch(clean);
 
       if (answerMatch != null) {
         return GeminiResult(
           answer: sanitizeAnswer(answerMatch.group(1) ?? clean),
           keyPoint: keyPointMatch?.group(1) ?? '',
+          directComment: directMatch != null ? sanitizeAnswer(directMatch.group(1)!) : null,
+          additionalComment: additMatch != null ? sanitizeAnswer(additMatch.group(1)!) : null,
         );
       }
 

@@ -136,6 +136,35 @@ void main() {
       expect(spans[6].scripture.endVerse, equals(19));
     });
 
+    test('Parses English citations (Matthew 28:19, 20 and Genesis 1:1)', () {
+      final res1 = BibleCitationParser.parse('Matthew 28:19, 20');
+      expect(res1, isNotNull);
+      expect(res1!.book.id, equals(40));
+      expect(res1.chapter, equals(28));
+      expect(res1.startVerse, equals(19));
+      expect(res1.endVerse, equals(20));
+
+      final res2 = BibleCitationParser.parse('Genesis 1:1');
+      expect(res2, isNotNull);
+      expect(res2!.book.id, equals(1));
+      expect(res2.chapter, equals(1));
+      expect(res2.startVerse, equals(1));
+    });
+
+    test('Parses Spanish citations (Hechos 2:38 and 1 Juan 4:8)', () {
+      final res1 = BibleCitationParser.parse('Hechos 2:38');
+      expect(res1, isNotNull);
+      expect(res1!.book.id, equals(44));
+      expect(res1.chapter, equals(2));
+      expect(res1.startVerse, equals(38));
+
+      final res2 = BibleCitationParser.parse('1 Juan 4:8');
+      expect(res2, isNotNull);
+      expect(res2!.book.id, equals(62));
+      expect(res2.chapter, equals(4));
+      expect(res2.startVerse, equals(8));
+    });
+
     test('Does not match non-scriptural parenthetical notes', () {
       expect(BibleCitationParser.extractScriptureSpans('(Veja também a nota.)'), isEmpty);
       expect(BibleCitationParser.extractScriptureSpans('(Veja os parágrafos 13 a 15.)*'), isEmpty);
