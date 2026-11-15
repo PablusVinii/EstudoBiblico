@@ -1,3 +1,4 @@
+import 'package:http/http.dart' as http;
 import 'bible_content_catalog.dart';
 import 'dart:async';
 import 'pub_media_client.dart';
@@ -18,89 +19,8 @@ class BibleService {
   bool isDownloading(String versionId) => _activeDownloadTasks.containsKey(versionId);
   static const String _defaultVersionId = 'nwt_t';
 
-  static const List<BibleBook> books = [
-    // 1-5 Pentateuco / Lei
-    BibleBook(id: 1, name: 'Gênesis', abbreviation: 'Gên', totalChapters: 50, isHebrew: true, category: 'pentateuch'),
-    BibleBook(id: 2, name: 'Êxodo', abbreviation: 'Êx', totalChapters: 40, isHebrew: true, category: 'pentateuch'),
-    BibleBook(id: 3, name: 'Levítico', abbreviation: 'Le', totalChapters: 27, isHebrew: true, category: 'pentateuch'),
-    BibleBook(id: 4, name: 'Números', abbreviation: 'Núm', totalChapters: 36, isHebrew: true, category: 'pentateuch'),
-    BibleBook(id: 5, name: 'Deuteronômio', abbreviation: 'De', totalChapters: 34, isHebrew: true, category: 'pentateuch'),
+    static const List<BibleBook> books = BibleContentCatalog.books;
 
-    // 6-17 Livros Históricos
-    BibleBook(id: 6, name: 'Josué', abbreviation: 'Jos', totalChapters: 24, isHebrew: true, category: 'history'),
-    BibleBook(id: 7, name: 'Juízes', abbreviation: 'Jz', totalChapters: 21, isHebrew: true, category: 'history'),
-    BibleBook(id: 8, name: 'Rute', abbreviation: 'Ru', totalChapters: 4, isHebrew: true, category: 'history'),
-    BibleBook(id: 9, name: '1 Samuel', abbreviation: '1Sa', totalChapters: 31, isHebrew: true, category: 'history'),
-    BibleBook(id: 10, name: '2 Samuel', abbreviation: '2Sa', totalChapters: 24, isHebrew: true, category: 'history'),
-    BibleBook(id: 11, name: '1 Reis', abbreviation: '1Rs', totalChapters: 22, isHebrew: true, category: 'history'),
-    BibleBook(id: 12, name: '2 Reis', abbreviation: '2Rs', totalChapters: 25, isHebrew: true, category: 'history'),
-    BibleBook(id: 13, name: '1 Crônicas', abbreviation: '1Cr', totalChapters: 29, isHebrew: true, category: 'history'),
-    BibleBook(id: 14, name: '2 Crônicas', abbreviation: '2Cr', totalChapters: 36, isHebrew: true, category: 'history'),
-    BibleBook(id: 15, name: 'Esdras', abbreviation: 'Esd', totalChapters: 10, isHebrew: true, category: 'history'),
-    BibleBook(id: 16, name: 'Neemias', abbreviation: 'Ne', totalChapters: 13, isHebrew: true, category: 'history'),
-    BibleBook(id: 17, name: 'Ester', abbreviation: 'Est', totalChapters: 10, isHebrew: true, category: 'history'),
-
-    // 18-22 Livros Poéticos
-    BibleBook(id: 18, name: 'Jó', abbreviation: 'Jó', totalChapters: 42, isHebrew: true, category: 'poetry'),
-    BibleBook(id: 19, name: 'Salmos', abbreviation: 'Sal', totalChapters: 150, isHebrew: true, category: 'poetry'),
-    BibleBook(id: 20, name: 'Provérbios', abbreviation: 'Pr', totalChapters: 31, isHebrew: true, category: 'poetry'),
-    BibleBook(id: 21, name: 'Eclesiastes', abbreviation: 'Ec', totalChapters: 12, isHebrew: true, category: 'poetry'),
-    BibleBook(id: 22, name: 'Cântico de Salomão', abbreviation: 'Cân', totalChapters: 8, isHebrew: true, category: 'poetry'),
-
-    // 23-39 Profetas Maiores e Menores
-    BibleBook(id: 23, name: 'Isaías', abbreviation: 'Is', totalChapters: 66, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 24, name: 'Jeremias', abbreviation: 'Je', totalChapters: 52, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 25, name: 'Lamentações', abbreviation: 'La', totalChapters: 5, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 26, name: 'Ezequiel', abbreviation: 'Ez', totalChapters: 48, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 27, name: 'Daniel', abbreviation: 'Da', totalChapters: 12, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 28, name: 'Oseias', abbreviation: 'Os', totalChapters: 14, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 29, name: 'Joel', abbreviation: 'Jl', totalChapters: 3, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 30, name: 'Amós', abbreviation: 'Am', totalChapters: 9, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 31, name: 'Obadias', abbreviation: 'Ob', totalChapters: 1, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 32, name: 'Jonas', abbreviation: 'Jon', totalChapters: 4, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 33, name: 'Miqueias', abbreviation: 'Miq', totalChapters: 7, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 34, name: 'Naum', abbreviation: 'Na', totalChapters: 3, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 35, name: 'Habacuque', abbreviation: 'Hab', totalChapters: 3, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 36, name: 'Sofonias', abbreviation: 'Sof', totalChapters: 3, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 37, name: 'Ageu', abbreviation: 'Ag', totalChapters: 2, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 38, name: 'Zacarias', abbreviation: 'Za', totalChapters: 14, isHebrew: true, category: 'prophets'),
-    BibleBook(id: 39, name: 'Malaquias', abbreviation: 'Mal', totalChapters: 4, isHebrew: true, category: 'prophets'),
-
-    // 40-43 Evangelhos
-    BibleBook(id: 40, name: 'Mateus', abbreviation: 'Mt', totalChapters: 28, isHebrew: false, category: 'gospels'),
-    BibleBook(id: 41, name: 'Marcos', abbreviation: 'Mr', totalChapters: 16, isHebrew: false, category: 'gospels'),
-    BibleBook(id: 42, name: 'Lucas', abbreviation: 'Lu', totalChapters: 24, isHebrew: false, category: 'gospels'),
-    BibleBook(id: 43, name: 'João', abbreviation: 'Jo', totalChapters: 21, isHebrew: false, category: 'gospels'),
-
-    // 44 Atos
-    BibleBook(id: 44, name: 'Atos', abbreviation: 'At', totalChapters: 28, isHebrew: false, category: 'acts'),
-
-    // 45-65 Cartas
-    BibleBook(id: 45, name: 'Romanos', abbreviation: 'Ro', totalChapters: 16, isHebrew: false, category: 'letters'),
-    BibleBook(id: 46, name: '1 Coríntios', abbreviation: '1Co', totalChapters: 16, isHebrew: false, category: 'letters'),
-    BibleBook(id: 47, name: '2 Coríntios', abbreviation: '2Co', totalChapters: 13, isHebrew: false, category: 'letters'),
-    BibleBook(id: 48, name: 'Gálatas', abbreviation: 'Gál', totalChapters: 6, isHebrew: false, category: 'letters'),
-    BibleBook(id: 49, name: 'Efésios', abbreviation: 'Ef', totalChapters: 6, isHebrew: false, category: 'letters'),
-    BibleBook(id: 50, name: 'Filipenses', abbreviation: 'Fil', totalChapters: 4, isHebrew: false, category: 'letters'),
-    BibleBook(id: 51, name: 'Colossenses', abbreviation: 'Col', totalChapters: 4, isHebrew: false, category: 'letters'),
-    BibleBook(id: 52, name: '1 Tessalonicenses', abbreviation: '1Te', totalChapters: 5, isHebrew: false, category: 'letters'),
-    BibleBook(id: 53, name: '2 Tessalonicenses', abbreviation: '2Te', totalChapters: 3, isHebrew: false, category: 'letters'),
-    BibleBook(id: 54, name: '1 Timóteo', abbreviation: '1Ti', totalChapters: 6, isHebrew: false, category: 'letters'),
-    BibleBook(id: 55, name: '2 Timóteo', abbreviation: '2Ti', totalChapters: 4, isHebrew: false, category: 'letters'),
-    BibleBook(id: 56, name: 'Tito', abbreviation: 'Tit', totalChapters: 3, isHebrew: false, category: 'letters'),
-    BibleBook(id: 57, name: 'Filêmon', abbreviation: 'Flm', totalChapters: 1, isHebrew: false, category: 'letters'),
-    BibleBook(id: 58, name: 'Hebreus', abbreviation: 'Heb', totalChapters: 13, isHebrew: false, category: 'letters'),
-    BibleBook(id: 59, name: 'Tiago', abbreviation: 'Tg', totalChapters: 5, isHebrew: false, category: 'letters'),
-    BibleBook(id: 60, name: '1 Pedro', abbreviation: '1Pe', totalChapters: 5, isHebrew: false, category: 'letters'),
-    BibleBook(id: 61, name: '2 Pedro', abbreviation: '2Pe', totalChapters: 3, isHebrew: false, category: 'letters'),
-    BibleBook(id: 62, name: '1 João', abbreviation: '1Jo', totalChapters: 5, isHebrew: false, category: 'letters'),
-    BibleBook(id: 63, name: '2 João', abbreviation: '2Jo', totalChapters: 1, isHebrew: false, category: 'letters'),
-    BibleBook(id: 64, name: '3 João', abbreviation: '3Jo', totalChapters: 1, isHebrew: false, category: 'letters'),
-    BibleBook(id: 65, name: 'Judas', abbreviation: 'Jd', totalChapters: 1, isHebrew: false, category: 'letters'),
-
-    // 66 Apocalipse
-    BibleBook(id: 66, name: 'Apocalipse', abbreviation: 'Re', totalChapters: 22, isHebrew: false, category: 'revelation'),
-  ];
 
   static const List<BibleVersion> defaultVersions = BibleContentCatalog.defaultVersions;
 
@@ -387,7 +307,7 @@ class BibleService {
     }
 
     if (!await activeDir.exists()) {
-      return _generateOnlineOrPlaceholderChapter(book, chapter);
+      return await _generateOnlineOrPlaceholderChapter(book, chapter);
     }
 
     // 1. Tenta carregar do EPUB padrão (OEBPS/docId.xhtml)
@@ -416,7 +336,7 @@ class BibleService {
       _ensureStudyBibleText(version, activeDir);
     }
 
-    return _generateOnlineOrPlaceholderChapter(book, chapter);
+    return await _generateOnlineOrPlaceholderChapter(book, chapter);
   }
 
   Future<BibleChapterContent?> _tryLoadFromEpub(
@@ -500,44 +420,74 @@ class BibleService {
     String xhtml,
   ) => _parseXhtmlChapter(book, chapter, xhtml);
 
+  static String _cleanVerseSlice(String slice) => slice
+      .replaceAll(RegExp(r'<span[^>]*class="pageNum"[^>]*>.*?</span>', caseSensitive: false, dotAll: true), '')
+      .replaceAll(RegExp(r'<a\b[^>]*>.*?</a>', caseSensitive: false, dotAll: true), '')
+      .replaceAll(RegExp(r'<[^>]+>'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .replaceAll('*', '')
+      .replaceAll('+', '')
+      .trim();
+
   static List<BibleVerseToken> _parseVerseTokens(
     String rawHtml,
     Map<String, String> footnotes,
   ) {
     final tokens = <BibleVerseToken>[];
-    final tagRegex = RegExp(
-      r'<a[^>]*class="[^"]*(w_cr|w_fn)[^"]*"[^>]*href="([^"]*)"[^>]*>(.*?)</a>',
+    final anchorRegex = RegExp(
+      r'<a\b([^>]*)>(.*?)</a>',
       caseSensitive: false,
+      dotAll: true,
     );
     int lastIndex = 0;
 
-    for (final match in tagRegex.allMatches(rawHtml)) {
+    for (final match in anchorRegex.allMatches(rawHtml)) {
       if (match.start > lastIndex) {
         final textSlice = rawHtml.substring(lastIndex, match.start);
-        final cleanText = textSlice
-            .replaceAll(RegExp(r'<span[^>]*class="pageNum"[^>]*>.*?</span>', caseSensitive: false, dotAll: true), '')
-            .replaceAll(RegExp(r'<[^>]+>'), ' ')
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .replaceAll('*', '')
-            .replaceAll('+', '')
-            .trim();
+        final cleanText = _cleanVerseSlice(textSlice);
         if (cleanText.isNotEmpty) {
           tokens.add(BibleVerseToken.text(cleanText));
         }
       }
 
-      final cls = (match.group(1) ?? '').toLowerCase();
-      final href = match.group(2) ?? '';
-      if (cls.contains('w_fn')) {
-        final fnId = href.replaceAll('#', '').trim();
-        final fnText = footnotes[fnId] ?? 'Nota explicativa';
+      final rawAttrs = match.group(1) ?? '';
+      final attrs = rawAttrs.toLowerCase();
+      final innerText = (match.group(2) ?? '').replaceAll(RegExp(r'<[^>]+>'), '').trim();
+      final hrefMatch = RegExp(r'href="([^"]*)"', caseSensitive: false).firstMatch(rawAttrs);
+      final href = hrefMatch?.group(1) ?? '';
+
+      final isFootnote = attrs.contains('w_fn') ||
+          attrs.contains('noteref') ||
+          attrs.contains('footnote') ||
+          attrs.contains(RegExp(r'\bfn\b')) ||
+          innerText == '*';
+
+      final isCrossRef = attrs.contains('w_cr') ||
+          attrs.contains(RegExp(r'\bb\b')) ||
+          attrs.contains('/bc/') ||
+          innerText == '+';
+
+      if (isFootnote) {
+        final fnMatch = RegExp(r'(?:data-fnid="(\d+)"|id="footnotesource(\d+)"|href="[^"]*?(?:footnote|fn)?(\d+)")', caseSensitive: false).firstMatch(rawAttrs);
+        final numId = fnMatch?.group(1) ?? fnMatch?.group(2) ?? fnMatch?.group(3);
+        final cleanHref = href.replaceAll('#', '').trim();
+        final fnId = (cleanHref.isNotEmpty && !cleanHref.contains('/')) ? cleanHref : (numId ?? cleanHref);
+        final fnText = footnotes[fnId] ??
+            footnotes[numId] ??
+            footnotes['footnote$numId'] ??
+            footnotes['fn$numId'] ??
+            footnotes['verseFootnote-$numId'] ??
+            footnotes[cleanHref] ??
+            'Nota explicativa';
         tokens.add(BibleVerseToken.footnote(
           footnoteId: fnId,
           footnoteText: fnText,
         ));
-      } else if (cls.contains('w_cr')) {
+      } else if (isCrossRef) {
+        final crText = innerText.isNotEmpty ? innerText : '+';
         tokens.add(BibleVerseToken.crossRef(
           crossRefTarget: href,
+          text: crText,
         ));
       }
       lastIndex = match.end;
@@ -545,13 +495,7 @@ class BibleService {
 
     if (lastIndex < rawHtml.length) {
       final textSlice = rawHtml.substring(lastIndex);
-      final cleanText = textSlice
-          .replaceAll(RegExp(r'<span[^>]*class="pageNum"[^>]*>.*?</span>', caseSensitive: false, dotAll: true), '')
-          .replaceAll(RegExp(r'<[^>]+>'), ' ')
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .replaceAll('*', '')
-          .replaceAll('+', '')
-          .trim();
+      final cleanText = _cleanVerseSlice(textSlice);
       if (cleanText.isNotEmpty) {
         tokens.add(BibleVerseToken.text(cleanText));
       }
@@ -568,22 +512,81 @@ class BibleService {
     final verses = <BibleVerseItem>[];
     final footnotes = <String, String>{};
 
-    // Extrai notas de rodapé do final se houver (suporta footnote1 e fn1)
+    // Extrai notas de rodapé de todas as variações (li, div, aside, p) em EPUB e WOL
     final footnoteMatches = RegExp(
-      r'<li[^>]*id="((?:footnote|fn)\d+)"[^>]*>(.*?)</li>',
+      r'<(?:li|div|p|aside)[^>]*(?:id="((?:verseFootnote-|footnote|fn)?\d+)"|data-extract-id="((?:verseFootnote-|footnote|fn)?\d+)")[^>]*>(.*?)</(?:li|div|p|aside)>',
       caseSensitive: false,
       dotAll: true,
     ).allMatches(xhtml);
 
     for (final m in footnoteMatches) {
-      final id = m.group(1) ?? '';
-      final content = m.group(2)?.replaceAll(RegExp(r'<[^>]+>'), ' ').trim() ?? '';
-      if (id.isNotEmpty) {
-        footnotes[id] = content;
+      final rawId = m.group(1) ?? m.group(2) ?? '';
+      final numMatch = RegExp(r'\d+').firstMatch(rawId);
+      final rawContent = m.group(3) ?? '';
+      final content = rawContent
+          .replaceAll(RegExp(r'<[^>]+>'), ' ')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .replaceFirst(RegExp(r'^\*\s*'), '')
+          .trim();
+      if (content.isNotEmpty) {
+        if (numMatch != null) {
+          final digits = numMatch.group(0)!;
+          footnotes[digits] = content;
+          footnotes['footnote$digits'] = content;
+          footnotes['fn$digits'] = content;
+          footnotes['verseFootnote-$digits'] = content;
+        }
+        if (rawId.isNotEmpty) {
+          footnotes[rawId] = content;
+        }
       }
     }
 
-    // Extrai parágrafos que contenham versículos (prosa e poesia: sb, sl, sz, sp)
+    // Estratégia 1: Formato WOL com marcações por versículo <span id="v...-\d+-\d+" class="v">
+    final spanVMatches = RegExp(
+      r'<span id="v\d+-\d+-(\d+)-\d+" class="v">([\s\S]*?)</span>',
+      caseSensitive: false,
+    ).allMatches(xhtml).toList();
+
+    if (spanVMatches.isNotEmpty) {
+      for (final vm in spanVMatches) {
+        final vNum = int.tryParse(vm.group(1) ?? '') ?? (verses.length + 1);
+        final rawVerseHtml = vm.group(2) ?? '';
+        final cleanText = _cleanVerseSlice(rawVerseHtml);
+
+        final vTokens = _parseVerseTokens(rawVerseHtml, footnotes);
+        final vFootnotes = vTokens
+            .where((t) => t.isFootnote && t.footnoteText != null)
+            .map((t) => t.footnoteText!)
+            .toList();
+        final vCrossRefs = vTokens
+            .where((t) => t.isCrossRef && t.crossRefTarget != null)
+            .map((t) => t.crossRefTarget!)
+            .toList();
+
+        if (cleanText.isNotEmpty || vTokens.isNotEmpty) {
+          verses.add(BibleVerseItem(
+            verseNumber: vNum,
+            text: cleanText,
+            footnotes: vFootnotes,
+            crossRefs: vCrossRefs,
+            tokens: vTokens,
+          ));
+        }
+      }
+
+      if (verses.isNotEmpty) {
+        return BibleChapterContent(
+          bookNumber: book.id,
+          bookName: book.name,
+          chapterNumber: chapter,
+          verses: verses,
+          footnotes: footnotes,
+        );
+      }
+    }
+
+    // Estratégia 2: Formato EPUB padrão (parágrafos sb, sl, sz, sp com w_ch ou sup)
     final pMatches = RegExp(
       r'<p[^>]*class="[^"]*(?:sb|sl|sz|sp)[^"]*"[^>]*>(.*?)</p>',
       caseSensitive: false,
@@ -592,7 +595,6 @@ class BibleService {
 
     for (final pMatch in pMatches) {
       final pContent = pMatch.group(1) ?? '';
-      // Versículo inicial ou marcador de versículos (ex: <span class="w_ch"><strong>1</strong></span> ou <sup>2</sup>)
       final parts = pContent.split(RegExp(
         r'(?:<span[^>]*class="w_ch"[^>]*><strong>\d+</strong>\s*</span>|(?:<strong><sup>\d+</sup></strong>|<sup><strong>\d+</strong></sup>|<sup>\d+</sup>))',
         caseSensitive: false,
@@ -603,16 +605,8 @@ class BibleService {
       ).allMatches(pContent).toList();
 
       if (numMatches.isEmpty && verses.isNotEmpty) {
-        // Parágrafo de continuação do versículo anterior
         final contTokens = _parseVerseTokens(pContent, footnotes);
-        var contText = pContent
-            .replaceAll(RegExp(r'<a[^>]*class="[^"]*(?:w_cr|w_fn)[^"]*"[^>]*>.*?</a>', caseSensitive: false), '')
-            .replaceAll(RegExp(r'<span[^>]*class="pageNum"[^>]*>.*?</span>', caseSensitive: false, dotAll: true), '')
-            .replaceAll(RegExp(r'<[^>]+>'), ' ')
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .replaceAll('*', '')
-            .replaceAll('+', '')
-            .trim();
+        var contText = _cleanVerseSlice(pContent);
         if (contText.isNotEmpty || contTokens.isNotEmpty) {
           final lastVerse = verses.removeLast();
           final updatedTokens = List<BibleVerseToken>.from(lastVerse.tokens);
@@ -648,15 +642,7 @@ class BibleService {
             : (int.tryParse(m.group(2) ?? m.group(3) ?? m.group(4) ?? '') ?? (i + 1));
         final rawText = (i + 1 < parts.length) ? parts[i + 1] : '';
 
-        // Limpa HTML mantendo apenas texto limpo
-        var cleanText = rawText
-            .replaceAll(RegExp(r'<a[^>]*class="[^"]*(?:w_cr|w_fn)[^"]*"[^>]*>.*?</a>', caseSensitive: false), '')
-            .replaceAll(RegExp(r'<span[^>]*class="pageNum"[^>]*>.*?</span>', caseSensitive: false, dotAll: true), '')
-            .replaceAll(RegExp(r'<[^>]+>'), ' ')
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .replaceAll('*', '')
-            .replaceAll('+', '')
-            .trim();
+        var cleanText = _cleanVerseSlice(rawText);
 
         final vTokens = _parseVerseTokens(rawText, footnotes);
         final vFootnotes = vTokens
@@ -689,29 +675,41 @@ class BibleService {
     );
   }
 
-  BibleChapterContent _generateOnlineOrPlaceholderChapter(
+  Future<BibleChapterContent> _generateOnlineOrPlaceholderChapter(
     BibleBook book,
     int chapter,
-  ) {
-    // Versículos essenciais pré-carregados para Gênesis 1 caso offline sem download prévio
+  ) async {
+    // 1. Tenta buscar online via wol.jw.org (nwtsty ou nwt) e salvar cache local
+    final candidateUrls = [
+      Uri.parse('https://wol.jw.org/pt/wol/b/r5/lp-t/nwtsty/${book.id}/$chapter'),
+      Uri.parse('https://wol.jw.org/pt/wol/b/r5/lp-t/nwt/${book.id}/$chapter'),
+    ];
+
+    for (final url in candidateUrls) {
+      try {
+        final response = await http.get(url).timeout(const Duration(seconds: 4));
+        if (response.statusCode == 200 &&
+            (response.body.contains('class="sb"') || response.body.contains('class="v"'))) {
+          final parsed = _parseXhtmlChapter(book, chapter, response.body);
+          if (parsed.verses.isNotEmpty) {
+            _cacheChapterLocally(book, chapter, response.body);
+            return parsed;
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2. Versículos essenciais pré-carregados para Gênesis 1 caso offline sem download prévio
     if (book.id == 1 && chapter == 1) {
-      return BibleChapterContent(
+      return const BibleChapterContent(
         bookNumber: 1,
         bookName: 'Gênesis',
         chapterNumber: 1,
-        verses: const [
-          BibleVerseItem(verseNumber: 1, text: 'No princípio Deus criou os céus e a terra.'),
-          BibleVerseItem(verseNumber: 2, text: 'A terra era vazia e deserta, e havia escuridão sobre as águas profundas; e a força ativa de Deus movia-se sobre as águas.'),
-          BibleVerseItem(verseNumber: 3, text: 'E Deus disse: "Que haja luz." Então houve luz.'),
-          BibleVerseItem(verseNumber: 4, text: 'Depois disso Deus viu que a luz era boa, e Deus começou a separar a luz da escuridão.'),
-          BibleVerseItem(verseNumber: 5, text: 'Deus chamou a luz de "dia", mas a escuridão chamou de "noite". Houve noite e houve manhã, primeiro dia.'),
-          BibleVerseItem(verseNumber: 6, text: 'Então Deus disse: "Haja uma expansão no meio das águas, e haja separação entre águas e águas."'),
-          BibleVerseItem(verseNumber: 7, text: 'Deus passou então a fazer a expansão e a fazer separação entre as águas que deviam ficar debaixo da expansão e as águas que deviam ficar por cima da expansão. E assim se fez.'),
-          BibleVerseItem(verseNumber: 8, text: 'E Deus começou a chamar a expansão de "Céus". E veio a ser noitinha e veio a ser manhã, segundo dia.'),
-        ],
+        verses: BibleContentCatalog.genesis1FallbackVerses,
       );
     }
 
+    // 3. Fallback informativo
     return BibleChapterContent(
       bookNumber: book.id,
       bookName: book.name,
@@ -723,6 +721,20 @@ class BibleService {
         ),
       ],
     );
+  }
+
+  void _cacheChapterLocally(BibleBook book, int chapter, String xhtml) async {
+    try {
+      final baseDir = await _getBiblesDirectory();
+      final targetDir = Directory(p.join(baseDir.path, 'nwt_t', 'OEBPS'));
+      if (!await targetDir.exists()) {
+        await targetDir.create(recursive: true);
+      }
+      final docId = 1001061104 + book.id;
+      final fileName = (chapter == 1) ? '$docId.xhtml' : '$docId-split$chapter.xhtml';
+      final file = File(p.join(targetDir.path, fileName));
+      await file.writeAsString(xhtml);
+    } catch (_) {}
   }
 
   void _ensureStudyBibleText(BibleVersion version, Directory targetDir) {

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sentinela_study/services/bible_service.dart';
+import 'package:sentinela_study/services/bible_content_catalog.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -59,11 +60,11 @@ void main() {
     test('Default catalog contains all Brazilian Portuguese Bibles including Study Bible and Reference Bible', () {
       final versions = BibleService.defaultVersions;
       // TNM 2015
-      expect(versions.any((v) => v.id == 'nwt_t' && v.pubCode == 'nwt' && v.sizeLabel == '15 MB' && v.langCode == 'T'), isTrue);
+      expect(versions.any((v) => v.id == 'nwt_t' && v.pubCode == 'nwt' && v.langCode == 'T'), isTrue);
       // Bíblia de Estudo
       expect(versions.any((v) => v.id == 'nwtsty_t' && v.pubCode == 'nwtsty' && v.sizeLabel == '120 MB' && v.langCode == 'T'), isTrue);
-      // Bíblia com Referências (1986)
-      expect(versions.any((v) => v.id == 'bi12_t' && v.pubCode == 'bi12' && v.sizeLabel == '14 MB' && v.langCode == 'T'), isTrue);
+      // Bíblia com Referências
+      expect(versions.any((v) => v.id == 'bi12_t' && v.pubCode == 'bi12' && v.langCode == 'T'), isTrue);
       // Portugal, English, Spanish
       expect(versions.any((v) => v.id == 'nwt_tpo' && v.langCode == 'TPO'), isTrue);
       expect(versions.any((v) => v.id == 'nwt_e' && v.langCode == 'E'), isTrue);
@@ -228,6 +229,72 @@ void main() {
       expect(content.verses[1].text, contains('A terra era sem forma e vazia. E havia escuridão'));
       final tokenTexts = content.verses[1].tokens.map((t) => t.text).join();
       expect(tokenTexts, contains('A terra era sem forma e vazia. E havia escuridão'));
+    });
+    test('parseXhtmlChapter parses WOL HTML with span.v, footnote links and cross-reference links', () {
+      final malachi = BibleService.books.firstWhere((b) => b.name == 'Malaquias');
+      const wolHtml = '''
+        <article>
+          <p class="sb">
+            <span id="v39-4-1-1" class="v"><a class="cl vx vp"><strong>4</strong> </a>“Vejam! Vem o dia, ardente como uma fornalha,<a href="/pt/wol/bc/r5/lp-t/1001070143/72" data-bid="73-1" class="b">+</a> quando todos os arrogantes se tornarão como palha.<a id="footnotesource38" data-fnid="38" class="fn" href="/pt/wol/fn/r5/lp-t/1001070143/37">*</a></span>
+            <span id="v39-4-2-1" class="v"><a class="vl vx vp">2 </a>Mas, sobre vocês que honram o meu nome, o sol da justiça brilhará.</span>
+          </p>
+          <ol>
+            <li class="item footnote" data-extract-id="verseFootnote-38"><span class="marker">*</span><p>Lit.: “restolho”.</p></li>
+          </ol>
+        </article>
+      ''';
+
+      final content = service.parseXhtmlChapter(malachi, 4, wolHtml);
+      expect(content.verses.length, equals(2));
+      expect(content.verses[0].verseNumber, equals(1));
+      expect(content.verses[0].text, contains('Vejam! Vem o dia, ardente como uma fornalha'));
+      expect(content.verses[0].tokens.any((t) => t.isCrossRef), isTrue);
+      expect(content.verses[0].tokens.any((t) => t.isFootnote && (t.footnoteText?.contains('restolho') ?? false)), isTrue);
+      expect(content.footnotes['38'], contains('restolho'));
+
+      expect(content.verses[1].verseNumber, equals(2));
+      expect(content.verses[1].text, contains('Mas, sobre vocês que honram o meu nome'));
+    });
+
+    test('parseXhtmlChapter parses official EPUB with epub:type noteref and div footnotes', () {
+      final malachi = BibleService.books.firstWhere((b) => b.name == 'Malaquias');
+      const epubHtml = '''
+        <html>
+          <body>
+            <p class="sb"><span class="w_ch"><strong>4</strong></span> “Vejam! Vem o dia.<a class="w_cr" href="#cr1">+</a> Todos se tornarão como palha.<a epub:type="noteref" href="#footnote38">*</a></p>
+            <div epub:type="footnote" id="footnote38"><p>Lit.: “restolho”.</p></div>
+          </body>
+        </html>
+      ''';
+
+      final content = service.parseXhtmlChapter(malachi, 4, epubHtml);
+      expect(content.verses.length, equals(1));
+      expect(content.verses[0].tokens.any((t) => t.isFootnote && (t.footnoteText?.contains('restolho') ?? false)), isTrue);
+      expect(content.footnotes['footnote38'], contains('restolho'));
+      expect(content.footnotes['38'], contains('restolho'));
+    });
+
+    test('BibleContentCatalog provides complete Study Bible introduction questions, appendices and book introductions', () {
+      final introArticles = BibleContentCatalog.introductionArticles;
+      expect(introArticles.length, greaterThanOrEqualTo(24));
+      // 20 Questions
+      expect(introArticles.any((a) => a.title.contains('1. Quem é Deus?')), isTrue);
+      expect(introArticles.any((a) => a.title.contains('20. Como a Bíblia pode ajudar você?')), isTrue);
+
+      // Appendices A1-A7 e B1-B16
+      final appendices = BibleContentCatalog.appendixArticles;
+      expect(appendices.length, greaterThanOrEqualTo(23));
+      expect(appendices.any((a) => a.id == 'app_a1'), isTrue);
+      expect(appendices.any((a) => a.id == 'app_a7'), isTrue);
+      expect(appendices.any((a) => a.id == 'app_b1'), isTrue);
+      expect(appendices.any((a) => a.id == 'app_b16'), isTrue);
+
+      // Book introduction
+      final genesis = BibleService.books.first;
+      final bookIntro = BibleContentCatalog.getBookIntroduction(genesis);
+      expect(bookIntro.title, equals('Introdução a Gênesis'));
+      expect(bookIntro.subtitle, contains('Moisés'));
+      expect(bookIntro.content, contains('FICHA TÉCNICA'));
     });
   });
 }

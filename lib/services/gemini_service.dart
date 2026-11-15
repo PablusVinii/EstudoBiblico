@@ -559,41 +559,58 @@ Retorne EXCLUSIVAMENTE um objeto JSON no formato:
   String _cleanSingleAnswer(String text) {
     var cleaned = text.trim();
 
-    // 1. Remove saudações explícitas (Olá, Oi, Bom dia, Boa tarde, Boa noite, Saudações, etc.)
-    // Ex: "Olá, irmãos!", "Olá!", "Bom dia a todos,", "Oi irmãos,"
-    cleaned = cleaned.replaceFirst(
-      RegExp(
-        r'^(?:(?:ol[áa](?![a-zA-Z0-9])|\boi\b|sauda[çc][õo]es\b|bom\s+dia\b|boa\s+tarde\b|boa\s+noite\b)(?:[,\s!.:;\-]+(?:a\s+todos(?:\s+os\s+irm[ãa]os?)?|aos\s+irm[ãa]os|irm[ãa]os?(?:\s+e\s+irm[ãa]s?)?|irm[ãa]s?|amigos?|pessoal))?[,!.:;\-]*\s*|(?:a\s+paz\s*[,!.:;\-]+\s*(?:a\s+todos|aos\s+irm[ãa]os|irm[ãa]os?|irm[ãa]s?)?[,!.:;\-]*\s*))',
-        caseSensitive: false,
-      ),
-      '',
-    );
+    // Loop que continua removendo saudações enquanto houver qualquer padrão de cumprimento ou vocativo no início
+    String previous;
+    do {
+      previous = cleaned;
 
-    cleaned = cleaned.trim();
+      // Remove aspas, apóstrofos ou markdown inicial/final que poderiam blindar o regex
+      cleaned = cleaned.replaceAll(RegExp(r'^["“`*]+|["”`*]+$'), '').trim();
 
-    // 2. Remove vocativos diretos no início: "Irmãos,", "Queridos irmãos!", "Prezados irmãos:", "Irmãos e irmãs,"
-    cleaned = cleaned.replaceFirst(
-      RegExp(
-        r'^(?:(?:queridos?|prezados?|caros?|meus?|nossos?)\s+)?(?:irm[ãa]os?(?:\s+e\s+irm[ãa]s?)?|irm[ãa]s?)\s*[,!.:;\-]+\s*',
-        caseSensitive: false,
-      ),
-      '',
-    );
+      // 1. Remove saudações explícitas (Olá, Oi, Bom dia, Boa tarde, Boa noite, Saudações)
+      cleaned = cleaned.replaceFirst(
+        RegExp(
+          r'^(?:ol[áa]|oi|sauda[çc][õo]es|bom\s+dia|boa\s+tarde|boa\s+noite)(?![a-zA-Z0-9])[\s,!.:;\-]*(?:a\s+todos(?:\s+os\s+irm[ãa]os?)?|aos\s+irm[ãa]os|irm[ãa]os?(?:\s+e\s+irm[ãa]s?)?|irm[ãa]s?|amigos?|pessoal)?[\s,!.:;\-]*',
+          caseSensitive: false,
+        ),
+        '',
+      ).trim();
 
-    cleaned = cleaned.trim();
+      // 1b. Remove "A paz," ou "A paz do Senhor," como saudação (requer pontuação ou vocativo)
+      cleaned = cleaned.replaceFirst(
+        RegExp(
+          r'^a\s+paz\s*[,!.:;\-]+(?:\s*(?:a\s+todos|aos\s+irm[ãa]os|irm[ãa]os?(?:\s+e\s+irm[ãa]s?)?|irm[ãa]s?))?[\s,!.:;\-]*',
+          caseSensitive: false,
+        ),
+        '',
+      ).trim();
 
-    // 3. Remove introduções como "Respondendo à pergunta:", "Comentando a pergunta:"
-    cleaned = cleaned.replaceFirst(
-      RegExp(
-        r'^(?:(?:respondendo|em\s+resposta|comentando)\s+(?:[àa]|ao|sobre\s+[ao])\s+pergunta\s*[,!.:;\-]*\s*)',
-        caseSensitive: false,
-      ),
-      '',
-    );
+      // 2. Remove vocativos diretos no início: "Irmãos,", "Irmãos!", "Irmãos:", "Queridos irmãos", etc.
+      cleaned = cleaned.replaceFirst(
+        RegExp(
+          r'^(?:(?:queridos?|prezados?|caros?|meus?|nossos?|amados?)\s+)?(?:irm[ãa]os?(?:\s+e\s+irm[ãa]s?)?|irm[ãa]s?)(?![a-zA-Z0-9])[\s,!.:;\-]*',
+          caseSensitive: false,
+        ),
+        '',
+      ).trim();
 
-    cleaned = cleaned.trim();
+      // 3. Remove introduções como "Respondendo à pergunta:", "Comentando a pergunta:", etc.
+      cleaned = cleaned.replaceFirst(
+        RegExp(
+          r'^(?:(?:respondendo|em\s+resposta|comentando|analisando|quanto|sobre)\s+(?:[àa]|ao|sobre\s+[ao]|a)?\s*pergunta(?![a-zA-Z0-9])[\s,!.:;\-]*|(?:com\s+certeza|certamente|de\s+fato|bem)\s*,\s*(?:irm[ãa]os?|irm[ãa]s?)?[\s,!.:;\-]*)',
+          caseSensitive: false,
+        ),
+        '',
+      ).trim();
+    } while (cleaned != previous && cleaned.isNotEmpty);
 
-    // 4. Garante que a primeira letra da resposta seja maiúscula
+    // 4. Remove vocativo parentético no meio de frases: ex: ", irmãos," ou ", irmãs,"
+    cleaned = cleaned.replaceAll(
+      RegExp(r',\s*irm[ãa]os?(?:\s+e\s+irm[ãa]s?)?,\s*', caseSensitive: false),
+      ', ',
+    ).trim();
+
+    // 5. Garante que a primeira letra da resposta seja maiúscula
     if (cleaned.isNotEmpty) {
       final firstChar = cleaned[0].toUpperCase();
       cleaned = firstChar + (cleaned.length > 1 ? cleaned.substring(1) : '');

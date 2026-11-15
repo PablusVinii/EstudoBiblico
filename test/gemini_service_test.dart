@@ -103,6 +103,21 @@ void main() {
       expect(parsed.additionalComment, equals('Filipenses 2:5-8 destaca que Jesus abriu mão de sua posição celestial.'));
       expect(parsed.keyPoint, equals('Jesus mostrou humildade'));
     });
+    test('strips multiple sequential greetings and quotes/markdown', () {
+      const input1 = '"Olá, irmãos! Analisando as razões..."';
+      expect(service.sanitizeAnswer(input1), equals('Analisando as razões...'));
+
+      const input2 = '**Irmãos,** Jesus nos deu o melhor exemplo.';
+      expect(service.sanitizeAnswer(input2), equals('Jesus nos deu o melhor exemplo.'));
+
+      const input3 = 'Olá! Irmãos, bom dia a todos! Analisando o parágrafo...';
+      expect(service.sanitizeAnswer(input3), equals('Analisando o parágrafo...'));
+    });
+
+    test('strips parenthetical mid-sentence vocatives like ", irmãos,"', () {
+      const input = 'Devemos sempre lembrar, irmãos, que Jeová é o nosso Refúgio.';
+      expect(service.sanitizeAnswer(input), equals('Devemos sempre lembrar, que Jeová é o nosso Refúgio.'));
+    });
   });
 }
 

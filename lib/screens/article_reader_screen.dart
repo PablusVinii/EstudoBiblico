@@ -58,10 +58,14 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
   void initState() {
     super.initState();
     for (final p in widget.article.paragraphs) {
-      _controllers[p.number] = TextEditingController(text: p.userAnswer);
+      final clean = _geminiService.sanitizeAnswer(p.userAnswer);
+      p.userAnswer = clean;
+      _controllers[p.number] = TextEditingController(text: clean);
     }
     for (final rq in widget.article.reviewQuestions) {
-      _reviewControllers[rq.index] = TextEditingController(text: rq.userAnswer);
+      final clean = _geminiService.sanitizeAnswer(rq.userAnswer);
+      rq.userAnswer = clean;
+      _reviewControllers[rq.index] = TextEditingController(text: clean);
     }
     _loadSavedData();
   }
@@ -73,17 +77,18 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
       final pSaved = savedData[p.number];
       if (pSaved != null) {
         if (pSaved['answer'] != null && pSaved['answer']!.isNotEmpty) {
-          p.userAnswer = pSaved['answer']!;
-          _controllers[p.number]?.text = p.userAnswer;
+          final cleanAns = _geminiService.sanitizeAnswer(pSaved['answer']!);
+          p.userAnswer = cleanAns;
+          _controllers[p.number]?.text = cleanAns;
         }
         if (pSaved['keyPoint'] != null && pSaved['keyPoint']!.isNotEmpty) {
           p.highlightedKeyPoint = pSaved['keyPoint']!;
         }
         if (pSaved['directComment'] != null && pSaved['directComment']!.isNotEmpty) {
-          p.directComment = pSaved['directComment']!;
+          p.directComment = _geminiService.sanitizeAnswer(pSaved['directComment']!);
         }
         if (pSaved['additionalComment'] != null && pSaved['additionalComment']!.isNotEmpty) {
-          p.additionalComment = pSaved['additionalComment']!;
+          p.additionalComment = _geminiService.sanitizeAnswer(pSaved['additionalComment']!);
         }
       }
     }
@@ -92,8 +97,9 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
     for (final rq in widget.article.reviewQuestions) {
       final savedAns = savedReviews[rq.index];
       if (savedAns != null && savedAns.isNotEmpty) {
-        rq.userAnswer = savedAns;
-        _reviewControllers[rq.index]?.text = savedAns;
+        final cleanReview = _geminiService.sanitizeAnswer(savedAns);
+        rq.userAnswer = cleanReview;
+        _reviewControllers[rq.index]?.text = cleanReview;
       }
     }
 

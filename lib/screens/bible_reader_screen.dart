@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../models/bible_model.dart';
 import '../services/bible_service.dart';
@@ -32,7 +31,6 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   late int _currentChapter;
   late BibleVersion _currentVersion;
   final Map<int, GlobalKey> _verseKeys = {};
-  final List<GestureRecognizer> _tokenRecognizers = [];
   BibleChapterContent? _content;
   bool _isLoading = true;
   bool _isDownloaded = false;
@@ -45,21 +43,12 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
     _loadChapterData();
   }
 
-  void _clearTokenRecognizers() {
-    for (final r in _tokenRecognizers) {
-      r.dispose();
-    }
-    _tokenRecognizers.clear();
-  }
-
   @override
   void dispose() {
-    _clearTokenRecognizers();
     super.dispose();
   }
 
   Future<void> _loadChapterData() async {
-    _clearTokenRecognizers();
     _verseKeys.clear();
     setState(() => _isLoading = true);
     try {
@@ -401,7 +390,6 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
 
   @override
   Widget build(BuildContext context) {
-    _clearTokenRecognizers();
     return Scaffold(
       backgroundColor: const Color(0xFF000000),
       appBar: AppBar(
@@ -585,36 +573,50 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                                 if (verse.tokens.isNotEmpty)
                                   ...verse.tokens.map((token) {
                                     if (token.isFootnote) {
-                                      final recognizer = TapGestureRecognizer()
-                                        ..onTap = () => _showFootnoteDialog(
-                                              verse.verseNumber,
-                                              token.footnoteText ?? 'Nota explicativa',
-                                            );
-                                      _tokenRecognizers.add(recognizer);
-                                      return TextSpan(
-                                        text: ' *',
-                                        style: const TextStyle(
-                                          color: Color(0xFFFFD54F),
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
+                                      return WidgetSpan(
+                                        alignment: PlaceholderAlignment.middle,
+                                        child: InkWell(
+                                          onTap: () => _showFootnoteDialog(
+                                                verse.verseNumber,
+                                                token.footnoteText ?? 'Nota explicativa',
+                                              ),
+                                          borderRadius: BorderRadius.circular(4),
+                                          child: const Padding(
+                                            padding: EdgeInsets.symmetric(horizontal: 2),
+                                            child: Text(
+                                              '*',
+                                              style: TextStyle(
+                                                color: Color(0xFFFFD54F),
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
                                         ),
-                                        recognizer: recognizer,
                                       );
                                     } else if (token.isCrossRef) {
-                                      final recognizer = TapGestureRecognizer()
-                                        ..onTap = () => _showCrossRefDialog(
-                                              verse.verseNumber,
-                                              token.crossRefTarget ?? '',
-                                            );
-                                      _tokenRecognizers.add(recognizer);
-                                      return TextSpan(
-                                        text: ' +',
-                                        style: const TextStyle(
-                                          color: Color(0xFF64B5F6),
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
+                                      final isLetter = RegExp(r'^[a-z]$', caseSensitive: false).hasMatch(token.text);
+                                      return WidgetSpan(
+                                        alignment: PlaceholderAlignment.middle,
+                                        child: InkWell(
+                                          onTap: () => _showCrossRefDialog(
+                                                verse.verseNumber,
+                                                token.crossRefTarget ?? '',
+                                              ),
+                                          borderRadius: BorderRadius.circular(4),
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                                            child: Text(
+                                              token.text.isNotEmpty ? token.text : '+',
+                                              style: TextStyle(
+                                                color: const Color(0xFF64B5F6),
+                                                fontSize: isLetter ? 14 : 17,
+                                                fontStyle: isLetter ? FontStyle.italic : FontStyle.normal,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
                                         ),
-                                        recognizer: recognizer,
                                       );
                                     } else {
                                       return TextSpan(

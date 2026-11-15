@@ -26,15 +26,18 @@ class _BibleScreenState extends State<BibleScreen> {
   void initState() {
     super.initState();
     _loadActiveVersion();
-    _indexSearchController.addListener(() {
-      setState(() {
-        _indexSearchQuery = _indexSearchController.text.trim().toLowerCase();
-      });
+    _indexSearchController.addListener(_onIndexSearchChanged);
+  }
+
+  void _onIndexSearchChanged() {
+    setState(() {
+      _indexSearchQuery = _indexSearchController.text.trim().toLowerCase();
     });
   }
 
   @override
   void dispose() {
+    _indexSearchController.removeListener(_onIndexSearchChanged);
     _indexSearchController.dispose();
     super.dispose();
   }
@@ -344,6 +347,25 @@ class _BibleScreenState extends State<BibleScreen> {
     );
   }
 
+  Color _getBookGenreColor(int bookId) {
+    // Pentateuco (Gênesis a Deuteronômio, 1-5): Tom claro (#564F63)
+    if (bookId <= 5) return const Color(0xFF564F63);
+    // Livros Históricos Hebraicos (Josué a Ester, 6-17): Tom escuro (#3D3747)
+    if (bookId <= 17) return const Color(0xFF3D3747);
+    // Livros Poéticos (Jó a Cântico de Salomão, 18-22): Tom claro (#564F63)
+    if (bookId <= 22) return const Color(0xFF564F63);
+    // Livros Proféticos Hebraicos (Isaías a Malaquias, 23-39): Tom escuro (#3D3747)
+    if (bookId <= 39) return const Color(0xFF3D3747);
+    // Evangelhos (Mateus a João, 40-43): Tom escuro (#3D3747)
+    if (bookId <= 43) return const Color(0xFF3D3747);
+    // Atos dos Apóstolos (Histórico Grego, 44): Tom claro (#564F63)
+    if (bookId == 44) return const Color(0xFF564F63);
+    // Epístolas/Cartas (Romanos a Judas, 45-65): Tom escuro (#3D3747)
+    if (bookId <= 65) return const Color(0xFF3D3747);
+    // Revelação / Apocalipse (66): Tom claro (#564F63)
+    return const Color(0xFF564F63);
+  }
+
   Widget _buildBooksGrid(List<BibleBook> booksList) {
     return GridView.builder(
       shrinkWrap: true,
@@ -358,7 +380,7 @@ class _BibleScreenState extends State<BibleScreen> {
       itemBuilder: (context, index) {
         final book = booksList[index];
         return Material(
-          color: const Color(0xFF433E4F),
+          color: _getBookGenreColor(book.id),
           borderRadius: BorderRadius.circular(2),
           child: InkWell(
             borderRadius: BorderRadius.circular(2),
