@@ -151,12 +151,87 @@ class ArticleParser {
 
   static Future<StudyArticle?> _parseHtmlArticle(
     String fileName,
-    String html,
+    String rawHtml,
     Map<String, String> imageMap, [
     String? tocDate,
   ]) async {
-    // Remove notas de rodapé e textos marginais anexados ao final do artigo
-    html = html.replaceAll(RegExp(r'<aside[^>]*>.*?<\/aside>', dotAll: true), '');
+    // 0. Extrai perguntas de recapitulação (COMO RESPONDERIA?) antes de remover aside/rodapé
+    final reviewQuestions = <ReviewQuestion>[];
+    final reviewMatch = RegExp(
+      r'(?:COMO RESPONDERIA\?|PERGUNTAS DE RECAPITULAÇÃO|COMO VOCÊ RESPONDERIA\?|RECAPITULAÇÃO).*?<\/div>\s*<div[^>]*boxContent[^>]*>(.*?)<\/aside>',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(rawHtml) ??
+    RegExp(
+      r'(?:COMO RESPONDERIA\?|PERGUNTAS DE RECAPITULAÇÃO|COMO VOCÊ RESPONDERIA\?|RECAPITULAÇÃO).*?(?:<ul[^>]*>|<ol[^>]*>)(.*?)(?:<\/ul>|<\/ol>)',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(rawHtml);
+
+    if (reviewMatch != null) {
+      final boxHtml = reviewMatch.group(1)!;
+      final qMatches = RegExp(r'<li[^>]*>\s*<p[^>]*>(.*?)<\/p>', dotAll: true).allMatches(boxHtml);
+      int qIdx = 1;
+      for (final qm in qMatches) {
+        final qText = _cleanHtml(qm.group(1)!);
+        if (qText.isNotEmpty) {
+          reviewQuestions.add(ReviewQuestion(index: qIdx, question: qText));
+          qIdx++;
+        }
+      }
+      if (reviewQuestions.isEmpty) {
+        final liMatches = RegExp(r'<li[^>]*>(.*?)<\/li>', dotAll: true).allMatches(boxHtml);
+        for (final lm in liMatches) {
+          final qText = _cleanHtml(lm.group(1)!);
+          if (qText.isNotEmpty && !qText.toLowerCase().contains('sua resposta')) {
+            reviewQuestions.add(ReviewQuestion(index: qIdx, question: qText));
+            qIdx++;
+          }
+        }
+      }
+    }
+
+    // Carrega respostas salvas das perguntas de recapitulação
+    final savedReviews = await StudyStorageService.loadReviewAnswers(fileName);
+    for (final q in reviewQuestions) {
+      final saved = savedReviews[q.index];
+      if (saved != null && saved.isNotEmpty) {
+        q.userAnswer = saved;
+      }
+    }
+
+    // 0.1 Extrai Cânticos (Abertura e Fechamento) antes de remover classes de rodapé
+    String? song;
+    String? closingSong;
+    var songMatches = RegExp(
+      r'<p[^>]*class="[^"]*pubRefs[^"]*"[^>]*>.*?(?:<strong>)?(CÂNTICO\s+\d+)(?:<\/strong>)?(?:<\/a>)?\s*(.*?)<\/p>',
+      caseSensitive: false,
+      dotAll: true,
+    ).allMatches(rawHtml).toList();
+
+    if (songMatches.isEmpty) {
+      songMatches = RegExp(
+        r'(?:<strong>)?(CÂNTICO\s+\d+)(?:<\/strong>)?\s*([^<\n\r]+)',
+        caseSensitive: false,
+      ).allMatches(rawHtml).toList();
+    }
+
+    if (songMatches.isNotEmpty) {
+      final first = songMatches.first;
+      final fNum = _cleanHtml(first.group(1)!);
+      final fTitle = first.groupCount >= 2 && first.group(2) != null ? _cleanHtml(first.group(2)!) : '';
+      song = fTitle.isNotEmpty ? '$fNum $fTitle' : fNum;
+
+      if (songMatches.length > 1) {
+        final last = songMatches.last;
+        final lNum = _cleanHtml(last.group(1)!);
+        final lTitle = last.groupCount >= 2 && last.group(2) != null ? _cleanHtml(last.group(2)!) : '';
+        closingSong = lTitle.isNotEmpty ? '$lNum $lTitle' : lNum;
+      }
+    }
+
+    // Agora sim remove notas de rodapé e textos marginais anexados ao final do artigo
+    String html = rawHtml.replaceAll(RegExp(r'<aside[^>]*>.*?<\/aside>', dotAll: true), '');
     html = html.replaceAll(RegExp(r'<div[^>]*class="[^"]*(?:groupExt|groupFootnote)[^"]*"[^>]*>.*?<\/div>', dotAll: true), '');
 
     // 1. Data da Semana (ex: 7 A 13 DE SETEMBRO DE 2026 ou vinda do TOC em edições antigas)
@@ -174,30 +249,18 @@ class ArticleParser {
       weekDate = tocDate;
     }
 
-    // 2. Cântico (ex: CÂNTICO 88 Os teus caminhos quero entender)
-    String? song;
-    final songMatch = RegExp(r'class="[^"]*pubRefs[^"]*"[^>]*>.*?href="[^"]*extracted[^"]*"><strong>(CÂNTICO\s+\d+)<\/strong><\/a>\s*(.*?)<\/p>', dotAll: true).firstMatch(html) ??
-        RegExp(r'(CÂNTICO\s+\d+[^<\n\r]*)', dotAll: true).firstMatch(html);
-    if (songMatch != null) {
-      if (songMatch.groupCount >= 2 && songMatch.group(2) != null) {
-        song = '${_cleanHtml(songMatch.group(1)!)} ${_cleanHtml(songMatch.group(2)!)}';
-      } else {
-        song = _cleanHtml(songMatch.group(1)!);
-      }
-    }
-
-    // 3. Título do Artigo
+    // 2. Título do Artigo
     final titleMatch = RegExp(r'<h1[^>]*>(.*?)<\/h1>', dotAll: true).firstMatch(html);
     final title = titleMatch != null ? _cleanHtml(titleMatch.group(1)!) : 'Artigo de Estudo';
 
-    // 4. Texto Temático (ex: “Os habitantes de Gibeão tinham feito paz com Israel...” — JOS. 10:1.)
+    // 3. Texto Temático (ex: “Os habitantes de Gibeão tinham feito paz com Israel...” — JOS. 10:1.)
     String? themeScripture;
     final themeMatch = RegExp(r'class="[^"]*themeScrp[^"]*"[^>]*>(.*?)<\/p>', dotAll: true).firstMatch(html);
     if (themeMatch != null) {
       themeScripture = _cleanHtml(themeMatch.group(1)!);
     }
 
-    // 5. Objetivo Oficial
+    // 4. Objetivo Oficial
     String? objective;
     final objMatch = RegExp(r'<strong>OBJETIVO<\/strong><\/p>\s*<p[^>]*class="[^"]*pubRefs[^"]*"[^>]*>(.*?)<\/p>', dotAll: true).firstMatch(html) ??
         RegExp(r'<strong>OBJETIVO<\/strong><\/p>\s*<p[^>]*>(.*?)<\/p>', dotAll: true).firstMatch(html);
@@ -205,7 +268,7 @@ class ArticleParser {
       objective = _cleanHtml(objMatch.group(1)!);
     }
 
-    // 6. Extração de ilustrações e legendas
+    // 5. Extração de ilustrações e legendas
     final figureRegex = RegExp(
       r'<figure[^>]*>\s*<img\s+[^>]*src="([^"]+)"[^>]*>\s*(?:<figcaption[^>]*>(.*?)<\/figcaption>)?\s*<\/figure>',
       dotAll: true,
@@ -242,7 +305,7 @@ class ArticleParser {
       }
     }
 
-    // 7. Extração dos Itens de Estudo em Sequência Linear Estrita
+    // 6. Extração dos Itens de Estudo em Sequência Linear Estrita
     final tagRegex = RegExp(
       r'(?:<h2[^>]*>(.*?)<\/h2>)|(?:<p[^>]*class="qu"[^>]*>(.*?)<\/p>)|(?:<p[^>]*id="q\d+"[^>]*>(.*?)<\/p>)|(?:<p[^>]*>(.*?)<\/p>)',
       dotAll: true,
@@ -342,10 +405,12 @@ class ArticleParser {
       title: title,
       weekDate: weekDate,
       song: song,
+      closingSong: closingSong,
       themeScripture: themeScripture,
       objective: objective,
       leadImagePath: leadImagePath,
       paragraphs: paragraphs,
+      reviewQuestions: reviewQuestions,
     );
   }
 

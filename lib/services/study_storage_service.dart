@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class StudyStorageService {
   static const String _prefixAns = 'study_ans_';
   static const String _prefixHl = 'study_hl_';
+  static const String _prefixReview = 'study_review_';
 
   /// Salva persistentemente o comentário/resposta e o trecho destacado de um parágrafo
   static Future<void> saveParagraphData({
@@ -55,6 +56,40 @@ class StudyStorageService {
       }
     }
 
+    return result;
+  }
+
+  /// Salva a resposta de uma pergunta de recapitulação (COMO RESPONDERIA?)
+  static Future<void> saveReviewAnswer({
+    required String articleId,
+    required int questionIndex,
+    required String answer,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = '$_prefixReview${articleId}_q$questionIndex';
+    if (answer.trim().isNotEmpty) {
+      await prefs.setString(key, answer.trim());
+    } else {
+      await prefs.remove(key);
+    }
+  }
+
+  /// Carrega as respostas de recapitulação salvas para um artigo
+  static Future<Map<int, String>> loadReviewAnswers(String articleId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final result = <int, String>{};
+    final keys = prefs.getKeys();
+    final prefix = '$_prefixReview${articleId}_q';
+
+    for (final key in keys) {
+      if (key.startsWith(prefix)) {
+        final qNumStr = key.substring(prefix.length);
+        final qNum = int.tryParse(qNumStr);
+        if (qNum != null) {
+          result[qNum] = prefs.getString(key) ?? '';
+        }
+      }
+    }
     return result;
   }
 }

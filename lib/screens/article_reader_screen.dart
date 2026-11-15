@@ -1,4 +1,4 @@
-﻿import 'package:flutter/gestures.dart';
+import 'package:flutter/gestures.dart';
 import '../services/bible_service.dart';
 import '../services/bible_citation_parser.dart';
 import 'bible_reader_screen.dart';
@@ -21,6 +21,7 @@ class ArticleReaderScreen extends StatefulWidget {
 class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
   final _geminiService = GeminiService();
   final Map<int, TextEditingController> _controllers = {};
+  final Map<int, TextEditingController> _reviewControllers = {};
   final List<TapGestureRecognizer> _scriptureRecognizers = [];
 
   void _clearScriptureRecognizers() {
@@ -59,6 +60,9 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
     for (final p in widget.article.paragraphs) {
       _controllers[p.number] = TextEditingController(text: p.userAnswer);
     }
+    for (final rq in widget.article.reviewQuestions) {
+      _reviewControllers[rq.index] = TextEditingController(text: rq.userAnswer);
+    }
     _loadSavedData();
   }
 
@@ -78,6 +82,15 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
       }
     }
 
+    final savedReviews = await StudyStorageService.loadReviewAnswers(widget.article.id);
+    for (final rq in widget.article.reviewQuestions) {
+      final savedAns = savedReviews[rq.index];
+      if (savedAns != null && savedAns.isNotEmpty) {
+        rq.userAnswer = savedAns;
+        _reviewControllers[rq.index]?.text = savedAns;
+      }
+    }
+
     if (mounted) setState(() {});
   }
 
@@ -85,6 +98,9 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
   void dispose() {
     _clearScriptureRecognizers();
     for (final ctrl in _controllers.values) {
+      ctrl.dispose();
+    }
+    for (final ctrl in _reviewControllers.values) {
       ctrl.dispose();
     }
     super.dispose();
@@ -161,6 +177,67 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
       if (mounted) {
         setState(() {
           paragraph.isGenerating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _handleGenerateReviewAnswer(ReviewQuestion reviewQ) async {
+    setState(() {
+      reviewQ.isGenerating = true;
+    });
+
+    try {
+      final fullArticleText = widget.article.paragraphs
+          .map((p) => '${p.number}. ${p.text}')
+          .join('\n\n');
+
+      final answer = await _geminiService.generateReviewAnswer(
+        articleTitle: widget.article.title,
+        fullArticleText: fullArticleText,
+        questionText: reviewQ.question,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        reviewQ.userAnswer = answer;
+        _reviewControllers[reviewQ.index]?.text = answer;
+      });
+
+      await StudyStorageService.saveReviewAnswer(
+        articleId: widget.article.id,
+        questionIndex: reviewQ.index,
+        answer: answer,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFFC62828),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 6),
+            content: Text(
+              'Erro ao gerar resposta: ${e.toString().replaceAll('Exception: ', '')}',
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+            ),
+            action: SnackBarAction(
+              label: 'CONFIGURAR',
+              textColor: Colors.yellowAccent,
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                );
+              },
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          reviewQ.isGenerating = false;
         });
       }
     }
@@ -531,6 +608,10 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
 
                 // 6. Lista Estruturada de Parágrafos de Estudo e Ilustrações
                 ..._buildStudyItems(),
+
+                // 7. Seção COMO RESPONDERIA? e Cântico Final
+                if (widget.article.reviewQuestions.isNotEmpty || widget.article.closingSong != null)
+                  _buildReviewSection(),
               ],
             ),
           ),
@@ -731,5 +812,173 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
       ),
     );
   }
-}
 
+  Widget _buildReviewSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (widget.article.reviewQuestions.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          const Divider(color: Color(0xFF2C2C2C), thickness: 1, height: 32),
+          const SizedBox(height: 8),
+          const Text(
+            'COMO RESPONDERIA?',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ...widget.article.reviewQuestions.map((q) => _buildReviewQuestionItem(q)),
+        ],
+
+        if (widget.article.closingSong != null) ...[
+          const SizedBox(height: 20),
+          Text(
+            widget.article.closingSong!,
+            style: const TextStyle(
+              color: Color(0xFF689FBD),
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Divider(color: Color(0xFF2C2C2C), thickness: 1, height: 24),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildReviewQuestionItem(ReviewQuestion q) {
+    final ctrl = _reviewControllers[q.index];
+    final isGenerating = q.isGenerating;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '• ${q.question}',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF161616),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFF2C2C2C)),
+            ),
+            child: Column(
+              children: [
+                TextField(
+                  controller: ctrl,
+                  maxLines: null,
+                  minLines: 2,
+                  style: const TextStyle(fontSize: 15, color: Colors.white, height: 1.4),
+                  decoration: const InputDecoration(
+                    hintText: 'Escreva sua resposta...',
+                    hintStyle: TextStyle(color: Color(0xFF757575)),
+                    contentPadding: EdgeInsets.all(12),
+                    border: InputBorder.none,
+                  ),
+                  onChanged: (val) {
+                    q.userAnswer = val;
+                    StudyStorageService.saveReviewAnswer(
+                      articleId: widget.article.id,
+                      questionIndex: q.index,
+                      answer: val,
+                    );
+                  },
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8, bottom: 8, left: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      if (isGenerating)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF7C4DFF), Color(0xFF536DFE)],
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Text(
+                                'Gerando...',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        InkWell(
+                          onTap: () => _handleGenerateReviewAnswer(q),
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF7C4DFF), Color(0xFF448AFF)],
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.3),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 2),
+                                )
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text('✨', style: TextStyle(fontSize: 14)),
+                                const SizedBox(width: 4),
+                                Text(
+                                  (ctrl?.text.trim().isNotEmpty ?? false) ? 'Regenerar' : 'Gerar Resposta',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

@@ -79,4 +79,42 @@ void main() {
     expect(article.paragraphs[1].text, equals('O conselho de Paulo aos filipenses veio numa boa hora.'));
   });
 
+
+  test('ArticleParser parses review questions (COMO RESPONDERIA?) and closing song', () async {
+    const reviewHtml = '''
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body>
+<p class="pubRefs"><strong>CÂNTICO 88</strong> Os teus caminhos quero entender</p>
+<h1>Artigo de Exemplo</h1>
+<div class="bodyTxt">
+  <p id="q1" class="qu"><strong>1. </strong>Como manter a fé?</p>
+  <p id="p1">Devemos orar e estudar a Bíblia todos os dias.</p>
+</div>
+<aside>
+  <div class="boxContent">
+    <p><strong>COMO RESPONDERIA?</strong></p>
+    <ul>
+      <li><p>Por que os cristãos não apoiam nenhum lado em questões políticas?</p></li>
+      <li><p>Por que nos recusamos a participar em conflitos violentos?</p></li>
+    </ul>
+  </div>
+</aside>
+<p class="pubRefs"><a href="extracted.xhtml"><strong>CÂNTICO 22</strong></a> Que Venha o Reino de Deus!</p>
+</body>
+</html>
+''';
+
+    final article = await ArticleParser.parseHtmlArticle(
+      'test_review.xhtml',
+      reviewHtml,
+      {},
+    );
+
+    expect(article, isNotNull);
+    expect(article!.reviewQuestions.length, equals(2));
+    expect(article.reviewQuestions[0].question, contains('não apoiam nenhum lado'));
+    expect(article.reviewQuestions[1].question, contains('conflitos violentos'));
+    expect(article.song, contains('CÂNTICO 88'));
+    expect(article.closingSong, contains('CÂNTICO 22'));
+  });
 }

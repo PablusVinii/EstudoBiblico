@@ -225,6 +225,152 @@ class GeminiService {
     );
   }
 
+
+  /// Gera a resposta para uma pergunta de recapitulação (COMO RESPONDERIA?)
+  /// baseada em todo o conteúdo do artigo de estudo.
+  Future<String> generateReviewAnswer({
+    required String articleTitle,
+    required String fullArticleText,
+    required String questionText,
+    String? customApiKey,
+  }) async {
+    final key = customApiKey ?? await getApiKey();
+    if (key == null || key.trim().isEmpty) {
+      throw Exception('Chave API do Gemini não configurada. Acesse Configurações para inserir.');
+    }
+
+    final savedModel = await getActiveModel();
+    final savedVersion = await getApiVersion();
+
+    // 1. Tenta prioritariamente com o modelo ativo
+    try {
+      return await _callGeminiReviewApi(
+        apiKey: key,
+        apiVersion: savedVersion,
+        model: savedModel,
+        articleTitle: articleTitle,
+        fullArticleText: fullArticleText,
+        questionText: questionText,
+      );
+    } catch (firstError) {
+      final errStr = firstError.toString();
+      if (!errStr.contains('404') && !errStr.contains('NOT_FOUND')) {
+        rethrow;
+      }
+    }
+
+    // 2. Se deu 404, faz fallback automático
+    final modelsToTry = <String>{
+      defaultModel,
+      ...defaultCandidateModels,
+    };
+
+    String lastErr = '';
+
+    for (final version in ['v1beta', 'v1']) {
+      for (final model in modelsToTry) {
+        try {
+          final result = await _callGeminiReviewApi(
+            apiKey: key,
+            apiVersion: version,
+            model: model,
+            articleTitle: articleTitle,
+            fullArticleText: fullArticleText,
+            questionText: questionText,
+          );
+
+          await saveActiveModel(model);
+          await saveApiVersion(version);
+          return result;
+        } catch (e) {
+          lastErr = e.toString();
+          if (lastErr.contains('404') || lastErr.contains('NOT_FOUND')) {
+            continue;
+          } else {
+            rethrow;
+          }
+        }
+      }
+    }
+
+    throw Exception(
+      'Não foi possível conectar com o modelo Gemini na sua chave do Google AI Studio.\nDetalhes: $lastErr',
+    );
+  }
+
+  Future<String> _callGeminiReviewApi({
+    required String apiKey,
+    required String apiVersion,
+    required String model,
+    required String articleTitle,
+    required String fullArticleText,
+    required String questionText,
+  }) async {
+    final cleanModel = model.startsWith('models/') ? model.substring(7) : model;
+    final url = Uri.parse(
+      'https://generativelanguage.googleapis.com/$apiVersion/models/$cleanModel:generateContent?key=$apiKey',
+    );
+
+    final promptText = '''
+Você é um assistente de estudo bíblico para o estudo de A Sentinela.
+O estudante está na seção final do estudo: "COMO RESPONDERIA?" (Perguntas de recapitulação).
+
+ARTIGO DE ESTUDO:
+Título: $articleTitle
+
+CONTEÚDO DO ARTIGO:
+$fullArticleText
+
+PERGUNTA DE RECAPITULAÇÃO:
+$questionText
+
+INSTRUÇÕES:
+1. Responda à pergunta de recapitulação com SUAS PRÓPRIAS PALAVRAS de forma clara, bíblica e direta, resumindo o que foi ensinado ao longo do artigo.
+2. Seja conciso (de 2 a 4 frases bem estruturadas), ideal para ser comentado na reunião congregacional.
+3. REGRA ABSOLUTA - PROIBIDO QUALQUER SAUDAÇÃO OU APRESENTAÇÃO:
+NUNCA inclua saudações, cumprimentos, vocativos ou apresentações no início ou no meio da resposta (É TOTALMENTE PROIBIDO usar "Olá, irmãos!", "Irmãos,", "Queridos irmãos,", "Olá!", "Bom dia", "Respondendo:", etc.). Comece a resposta IMEDIATAMENTE com o comentário direto.
+4. Retorne APENAS o texto da resposta, sem formatação JSON e sem aspas.
+''';
+
+    final body = jsonEncode({
+      'contents': [
+        {
+          'role': 'user',
+          'parts': [
+            {'text': promptText}
+          ]
+        }
+      ],
+      'generationConfig': {
+        'temperature': 0.3,
+      }
+    });
+
+    final response = await http
+        .post(
+          url,
+          headers: {'Content-Type': 'application/json'},
+          body: body,
+        )
+        .timeout(const Duration(seconds: 25));
+
+    if (response.statusCode != 200) {
+      throw Exception('Erro na API Gemini (${response.statusCode}): ${response.body}');
+    }
+
+    final data = jsonDecode(response.body);
+    final text = data['candidates']?[0]?['content']?[0]?['text'] ??
+        data['candidates']?[0]?['content']?['parts']?[0]?['text'] ??
+        '';
+
+    if (text.toString().trim().isEmpty) {
+      final finishReason = data['candidates']?[0]?['finishReason'] ?? 'SEM_RESPOSTA';
+      throw Exception('O modelo Gemini não retornou resposta (motivo: $finishReason). Tente novamente.');
+    }
+
+    return sanitizeAnswer(text.toString().trim());
+  }
+
   Future<GeminiResult> _callGeminiApi({
     required String apiKey,
     required String apiVersion,
