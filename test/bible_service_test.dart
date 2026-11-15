@@ -162,5 +162,33 @@ void main() {
       final isDownloaded = await service.isVersionDownloaded('non_existent_version_123');
       expect(isDownloaded, isFalse);
     });
+
+    test('deleteVersion defends against path traversal parameters', () async {
+      // Must safely reject/ignore paths traversing outside the bibles folder
+      await service.deleteVersion('../../unauthorized_directory');
+      // Should not throw or crash
+    });
+
+    test('parseXhtmlChapter strips cross-references without leaving residual plus characters', () {
+      final genesis = BibleService.books.first;
+      const xhtmlWithRefs = '''
+        <html>
+          <body>
+            <p class="sb"><span class="w_ch"><strong>1</strong></span> No princípio Deus criou os céus e a terra.<a class="w_cr" href="#cr1">+</a></p>
+            <p class="sb"><sup><strong>2</strong></sup> A terra era sem forma e vazia.<a class="w_fn" href="#fn1">*</a></p>
+          </body>
+        </html>
+      ''';
+
+      final content = service.parseXhtmlChapter(genesis, 1, xhtmlWithRefs);
+      expect(content.verses.length, equals(2));
+      expect(content.verses[0].verseNumber, equals(1));
+      expect(content.verses[0].text, equals('No princípio Deus criou os céus e a terra.'));
+      expect(content.verses[0].text.contains('+'), isFalse);
+
+      expect(content.verses[1].verseNumber, equals(2));
+      expect(content.verses[1].text, equals('A terra era sem forma e vazia.'));
+      expect(content.verses[1].text.contains('*'), isFalse);
+    });
   });
 }

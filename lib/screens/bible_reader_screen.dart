@@ -44,30 +44,44 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   Future<void> _loadChapterData() async {
     _verseKeys.clear();
     setState(() => _isLoading = true);
-    final activeVersion = await widget.bibleService.getActiveVersion();
-    final downloaded = await widget.bibleService.isVersionDownloaded(activeVersion.id);
-    final content = await widget.bibleService.loadChapter(widget.book, _currentChapter);
-    if (!mounted) return;
-    setState(() {
-      _currentVersion = activeVersion;
-      _content = content;
-      _isDownloaded = downloaded;
-      _isLoading = false;
-    });
-
-    if (widget.targetVerse != null && _currentChapter == widget.initialChapter) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        final targetKey = _verseKeys[widget.targetVerse];
-        if (targetKey?.currentContext != null) {
-          Scrollable.ensureVisible(
-            targetKey!.currentContext!,
-            duration: const Duration(milliseconds: 400),
-            curve: Curves.easeInOut,
-            alignment: 0.15,
-          );
-        }
+    try {
+      final activeVersion = await widget.bibleService.getActiveVersion();
+      final downloaded = await widget.bibleService.isVersionDownloaded(activeVersion.id);
+      final content = await widget.bibleService.loadChapter(widget.book, _currentChapter);
+      if (!mounted) return;
+      setState(() {
+        _currentVersion = activeVersion;
+        _content = content;
+        _isDownloaded = downloaded;
       });
+
+      if (widget.targetVerse != null && _currentChapter == widget.initialChapter) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          final targetKey = _verseKeys[widget.targetVerse];
+          if (targetKey?.currentContext != null) {
+            Scrollable.ensureVisible(
+              targetKey!.currentContext!,
+              duration: const Duration(milliseconds: 400),
+              curve: Curves.easeInOut,
+              alignment: 0.15,
+            );
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFFC62828),
+            content: Text('Erro ao carregar capítulo: $e'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -92,56 +106,74 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (context) {
+      builder: (sheetContext) {
         return Padding(
           padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.diamond, color: Color(0xFFB388FF), size: 24),
-                  const SizedBox(width: 10),
-                  Text(
-                    'Painel de Estudo - ${widget.book.name} $_currentChapter',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.diamond, color: Color(0xFFB388FF), size: 24),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Painel de Estudo - ${widget.book.name} $_currentChapter',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Notas de estudo, referências marginais e mapas multimídia oficiais.',
+                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+                const SizedBox(height: 16),
+                if (_content != null && _content!.footnotes.isNotEmpty) ...[
+                  const Divider(color: Color(0xFF333333)),
+                  const Text(
+                    'Notas de Rodapé:',
+                    style: TextStyle(color: Color(0xFFB388FF), fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  const SizedBox(height: 8),
+                  ..._content!.footnotes.entries.map((entry) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      '• ${entry.value}',
+                      style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+                    ),
+                  )),
+                  const SizedBox(height: 16),
+                ],
+                if (!_isDownloaded)
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(sheetContext);
+                      showDialog(
+                        context: context,
+                        builder: (_) => BibleLanguagesDialog(
+                          bibleService: widget.bibleService,
+                          onVersionChanged: () {
+                            _loadChapterData();
+                          },
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.cloud_download),
+                    label: const Text('Baixar Versão Completa para Estudo Offline'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF7C4DFF),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 44),
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Notas de estudo, referências marginais e mapas multimídia oficiais.',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
-              ),
-              const SizedBox(height: 20),
-              if (!_isDownloaded)
-                ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    showDialog(
-                      context: context,
-                      builder: (_) => BibleLanguagesDialog(
-                        bibleService: widget.bibleService,
-                        onVersionChanged: () {
-                          _loadChapterData();
-                        },
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.cloud_download),
-                  label: const Text('Baixar Versão Completa para Estudo Offline'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF7C4DFF),
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 44),
-                  ),
-                ),
-            ],
+              ],
+            ),
           ),
         );
       },

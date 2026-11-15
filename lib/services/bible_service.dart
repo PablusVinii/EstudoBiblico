@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'pub_media_client.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:io';
@@ -9,11 +10,11 @@ import '../models/bible_model.dart';
 
 class BibleService {
   static const String _prefActiveVersionKey = 'bible_active_version_id';
-  static final Set<String> _activeDownloads = {};
+  static final Map<String, Future<void>> _activeDownloadTasks = {};
 
   static Archive _decodeZip(List<int> bytes) => ZipDecoder().decodeBytes(bytes);
 
-  bool isDownloading(String versionId) => _activeDownloads.contains(versionId);
+  bool isDownloading(String versionId) => _activeDownloadTasks.containsKey(versionId);
   static const String _defaultVersionId = 'nwt_t';
 
   static const List<BibleBook> books = [
@@ -215,8 +216,8 @@ class BibleService {
 
   /// Resolve a URL final da CDN para download usando o PubMediaClient
   Future<String> resolveDownloadUrl(BibleVersion version) async {
+    final client = PubMediaClient();
     try {
-      final client = PubMediaClient();
       final pub = await client.getPublication(
         pubCode: version.pubCode,
         language: version.langCode,
@@ -229,7 +230,10 @@ class BibleService {
       if (preferred != null && preferred.url.isNotEmpty) {
         return preferred.url;
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      client.close();
+    }
 
     return version.directUrl;
   }
@@ -266,8 +270,29 @@ class BibleService {
     BibleVersion version, {
     void Function(double progress)? onProgress,
   }) async {
-    if (_activeDownloads.contains(version.id)) return;
-    _activeDownloads.add(version.id);
+    final existing = _activeDownloadTasks[version.id];
+    if (existing != null) {
+      return existing;
+    }
+
+    final completer = Completer<void>();
+    _activeDownloadTasks[version.id] = completer.future;
+
+    try {
+      await _performDownloadVersion(version, onProgress: onProgress);
+      completer.complete();
+    } catch (e, st) {
+      completer.completeError(e, st);
+      rethrow;
+    } finally {
+      _activeDownloadTasks.remove(version.id);
+    }
+  }
+
+  Future<void> _performDownloadVersion(
+    BibleVersion version, {
+    void Function(double progress)? onProgress,
+  }) async {
 
     final baseDir = await _getBiblesDirectory();
     final targetDir = Directory(p.join(baseDir.path, version.id));
@@ -365,11 +390,12 @@ class BibleService {
               }
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('Aviso: falha ao sincronizar texto complementar para nwtsty_t: $e');
+        }
       }
     } finally {
       client.close();
-      _activeDownloads.remove(version.id);
       if (await tempZipFile.exists()) {
         try {
           await tempZipFile.delete();
@@ -378,11 +404,13 @@ class BibleService {
     }
   }
 
-  /// Remove uma versão baixada
+  /// Remove uma versão baixada com validação contra Path Traversal
   Future<void> deleteVersion(String versionId) async {
     final baseDir = await _getBiblesDirectory();
     final targetDir = Directory(p.join(baseDir.path, versionId));
-    if (await targetDir.exists()) {
+    final normalizedBase = p.normalize(baseDir.path);
+    final normalizedTarget = p.normalize(targetDir.path);
+    if (p.isWithin(normalizedBase, normalizedTarget) && await targetDir.exists()) {
       await targetDir.delete(recursive: true);
     }
   }
@@ -555,17 +583,18 @@ class BibleService {
 
       // Versículo inicial ou marcador de versículos (ex: <span class="w_ch"><strong>1</strong></span> ou <sup>2</sup>)
       final parts = pContent.split(RegExp(
-        r'(?:<span[^>]*class="w_ch"[^>]*><strong>\d+</strong>\s*</span>|<strong><sup>\d+</sup></strong>)',
+        r'(?:<span[^>]*class="w_ch"[^>]*><strong>\d+</strong>\s*</span>|(?:<strong><sup>\d+</sup></strong>|<sup><strong>\d+</strong></sup>))',
         caseSensitive: false,
       ));
       final numMatches = RegExp(
-        r'(?:class="w_ch"[^>]*><strong>(\d+)</strong>|<strong><sup>(\d+)</sup></strong>)',
+        r'(?:class="w_ch"[^>]*><strong>(\d+)</strong>|(?:<strong><sup>(\d+)</sup></strong>|<sup><strong>(\d+)</strong></sup>))',
         caseSensitive: false,
       ).allMatches(pContent).toList();
 
       if (numMatches.isEmpty && verses.isNotEmpty) {
         // Parágrafo de continuação do versículo anterior
         var contText = pContent
+            .replaceAll(RegExp(r'<a[^>]*class="[^"]*(?:w_cr|w_fn)[^"]*"[^>]*>.*?</a>', caseSensitive: false), '')
             .replaceAll(RegExp(r'<span[^>]*class="pageNum"[^>]*>.*?</span>', caseSensitive: false, dotAll: true), '')
             .replaceAll(RegExp(r'<[^>]+>'), ' ')
             .replaceAll(RegExp(r'\s+'), ' ')
@@ -587,11 +616,12 @@ class BibleService {
         final m = numMatches[i];
         final int vNum = m.group(1) != null
             ? 1
-            : (int.tryParse(m.group(2) ?? '') ?? (i + 1));
+            : (int.tryParse(m.group(2) ?? m.group(3) ?? '') ?? (i + 1));
         final rawText = (i + 1 < parts.length) ? parts[i + 1] : '';
 
         // Limpa HTML mantendo apenas texto limpo
         var cleanText = rawText
+            .replaceAll(RegExp(r'<a[^>]*class="[^"]*(?:w_cr|w_fn)[^"]*"[^>]*>.*?</a>', caseSensitive: false), '')
             .replaceAll(RegExp(r'<span[^>]*class="pageNum"[^>]*>.*?</span>', caseSensitive: false, dotAll: true), '')
             .replaceAll(RegExp(r'<[^>]+>'), ' ')
             .replaceAll(RegExp(r'\s+'), ' ')
