@@ -1,3 +1,4 @@
+import 'pub_media_client.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -51,6 +52,7 @@ class JwApiService {
 
       final cachedCover = prefs.getString('cover_$code');
       final cachedFile = prefs.getString('file_$code');
+      final cachedChecksum = prefs.getString('checksum_$code');
 
       enrichedIssues.add(WatchtowerIssue(
         issueCode: code,
@@ -59,6 +61,7 @@ class JwApiService {
         fileSize: issue.fileSize,
         coverUrl: cachedCover ?? issue.coverUrl,
         fileUrl: cachedFile ?? issue.fileUrl,
+        checksum: cachedChecksum ?? issue.checksum,
         isDownloaded: isDownloaded,
         localPath: localPath,
         isPublicEdition: false,
@@ -165,12 +168,16 @@ class JwApiService {
             final fileUrl = item['file']?['url'];
             final coverUrl = item['images']?['wss']?['lg'] ?? item['images']?['wss']?['sm'];
             final title = item['title'] ?? 'A Sentinela $issueCode';
+            final checksum = item['file']?['checksum']?.toString();
 
             if (fileUrl != null && fileUrl.toString().isNotEmpty) {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setString('file_$issueCode', fileUrl);
               if (coverUrl != null) {
                 await prefs.setString('cover_$issueCode', coverUrl);
+              }
+              if (checksum != null && checksum.isNotEmpty) {
+                await prefs.setString('checksum_$issueCode', checksum);
               }
 
               return WatchtowerIssue(
@@ -179,6 +186,7 @@ class JwApiService {
                 coverUrl: coverUrl,
                 fileUrl: fileUrl,
                 format: foundFormat,
+                checksum: checksum,
               );
             }
           } catch (_) {}
@@ -212,52 +220,30 @@ class JwApiService {
 
     final ext = issue.format.toLowerCase() == 'jwpub' ? 'jwpub' : 'epub';
     final localFilePath = p.join(dir.path, 'w_${issue.issueCode}.$ext');
-    final tempFilePath = '$localFilePath.tmp';
-    final tempFile = File(tempFilePath);
 
-    final client = http.Client();
-    IOSink? sink;
-
+    final pubClient = PubMediaClient();
     try {
-      final request = http.Request('GET', Uri.parse(issue.fileUrl!));
-      final response = await client.send(request);
+      final mediaFile = PubMediaFile(
+        url: issue.fileUrl!,
+        filename: 'w_${issue.issueCode}.$ext',
+        title: issue.title,
+        language: 'T',
+        fileFormat: issue.format,
+        checksum: issue.checksum ?? '',
+      );
 
-      if (response.statusCode != 200) {
-        throw Exception('Erro ao baixar arquivo (código HTTP ${response.statusCode})');
-      }
-
-      final totalBytes = response.contentLength ?? 0;
-      int receivedBytes = 0;
-      sink = tempFile.openWrite();
-
-      await for (final chunk in response.stream) {
-        sink.add(chunk);
-        receivedBytes += chunk.length;
-        if (totalBytes > 0 && onProgress != null) {
-          onProgress(receivedBytes / totalBytes);
-        }
-      }
-
-      await sink.flush();
-      await sink.close();
-      sink = null;
-
-      if (await File(localFilePath).exists()) {
-        await File(localFilePath).delete();
-      }
-      await tempFile.rename(localFilePath);
+      await pubClient.downloadFile(
+        file: mediaFile,
+        destinationFile: File(localFilePath),
+        onProgress: onProgress,
+        verifyChecksum: issue.checksum != null && issue.checksum!.isNotEmpty,
+      );
 
       issue.isDownloaded = true;
       issue.localPath = localFilePath;
       return localFilePath;
-    } catch (e) {
-      if (await tempFile.exists()) {
-        await tempFile.delete();
-      }
-      rethrow;
     } finally {
-      await sink?.close();
-      client.close();
+      pubClient.close();
     }
   }
 
